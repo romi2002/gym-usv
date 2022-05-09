@@ -66,6 +66,7 @@ class UsvAsmcEnv(gym.Env):
 
         self.viewer = None
 
+        #TODO Normalize action
         self.min_action = -np.pi/2
         self.max_action = np.pi/2
 
@@ -183,26 +184,26 @@ class UsvAsmcEnv(gym.Env):
                       [0, self.m - self.Y_v_dot, 0 - self.Y_r_dot],
                       [0, 0 - self.N_v_dot, self.Iz - self.N_r_dot]])
 
-        T = np.array([Tport + self.c*Tstbd, 0, 0.5*self.B*(Tport - self.c*Tstbd)])
+        T = np.array([Tport + self.c*Tstbd, 0, 0.5*self.B*(Tport - self.c*Tstbd)], dtype=np.float32)
 
         CRB = np.array([[0, 0, 0 - self.m * upsilon[1]],
                         [0, 0, self.m * upsilon[0]],
-                        [self.m * upsilon[1], 0 - self.m * upsilon[0], 0]])
-        
+                        [self.m * upsilon[1], 0 - self.m * upsilon[0], 0]], dtype=np.float32)
+
         CA = np.array([[0, 0, 2 * ((self.Y_v_dot*upsilon[1]) + ((self.Y_r_dot + self.N_v_dot)/2) * upsilon[2])],
                        [0, 0, 0 - self.X_u_dot * self.m * upsilon[0]],
-                       [2*(((0 - self.Y_v_dot) * upsilon[1]) - ((self.Y_r_dot+self.N_v_dot)/2) * upsilon[2]), self.X_u_dot * self.m * upsilon[0], 0]])
+                       [2*(((0 - self.Y_v_dot) * upsilon[1]) - ((self.Y_r_dot+self.N_v_dot)/2) * upsilon[2]), self.X_u_dot * self.m * upsilon[0], 0]], dtype=np.float32)
 
         C = CRB + CA
 
         Dl = np.array([[0 - Xu, 0, 0],
                        [0, 0 - Yv, 0 - Yr],
-                       [0, 0 - Nv, 0 - Nr]])
+                       [0, 0 - Nv, 0 - Nr]], dtype=np.float32)
 
         Dn = np.array([[Xuu * abs(upsilon[0]), 0, 0],
                        [0, self.Yvv * abs(upsilon[1]) + self.Yvr * abs(upsilon[2]), self.Yrv *
                         abs(upsilon[1]) + self.Yrr * abs(upsilon[2])],
-                       [0, self.Nvv * abs(upsilon[1]) + self.Nvr * abs(upsilon[2]), self.Nrv * abs(upsilon[1]) + self.Nrr * abs(upsilon[2])]])
+                       [0, self.Nvv * abs(upsilon[1]) + self.Nvr * abs(upsilon[2]), self.Nrv * abs(upsilon[1]) + self.Nrr * abs(upsilon[2])]], dtype=np.float32)
 
         D = Dl - Dn
 
@@ -214,7 +215,7 @@ class UsvAsmcEnv(gym.Env):
 
         J = np.array([[np.cos(eta[2]), -np.sin(eta[2]), 0],
                       [np.sin(eta[2]), np.cos(eta[2]), 0],
-                      [0, 0, 1]])
+                      [0, 0, 1]], dtype=np.float32)
 
         eta_dot = np.matmul(J, upsilon)  # transformation into local reference frame
         eta = (self.integral_step)*(eta_dot+eta_dot_last)/2 + eta  # integral
@@ -239,13 +240,18 @@ class UsvAsmcEnv(gym.Env):
         else:
             done = False
 
-        self.state = np.array([upsilon[0], v_ak, upsilon[2], ye, psi_ak, action_last])
-        self.velocity = np.array([upsilon[0], upsilon[1], upsilon[2]])
-        self.position = np.array([eta[0], eta[1], psi])
-        self.aux_vars = np.array([e_u_int, Ka_u, Ka_psi])
-        self.last = np.array([eta_dot_last[0], eta_dot_last[1], eta_dot_last[2], upsilon_dot_last[0], upsilon_dot_last[1], upsilon_dot_last[2], e_u_last, Ka_dot_u_last, Ka_dot_psi_last])
+        self.state = np.array([upsilon[0], v_ak, upsilon[2], ye, psi_ak, action_last], dtype=np.float32)
+        self.velocity = np.array([upsilon[0], upsilon[1], upsilon[2]], dtype=np.float32)
+        self.position = np.array([eta[0], eta[1], psi], dtype=np.float32)
+        self.aux_vars = np.array([e_u_int, Ka_u, Ka_psi], dtype=np.float32)
+        self.last = np.array([eta_dot_last[0], eta_dot_last[1], eta_dot_last[2], upsilon_dot_last[0], upsilon_dot_last[1], upsilon_dot_last[2], e_u_last, Ka_dot_u_last, Ka_dot_psi_last], dtype=np.float32)
 
-        state = self.state.reshape(self.observation_space.shape[0])
+        state = self.state.reshape(self.observation_space.shape[0]).astype(np.float32)
+
+        try:
+            reward = reward[0].item()
+        except:
+            reward = reward.item()
 
         return state, reward, done, {}
 
@@ -290,7 +296,7 @@ class UsvAsmcEnv(gym.Env):
         self.last = np.array([eta_dot_last[0], eta_dot_last[1], eta_dot_last[2], upsilon_dot_last[0], upsilon_dot_last[1], upsilon_dot_last[2], e_u_last, Ka_dot_u_last, Ka_dot_psi_last])
         self.target = np.array([x_0, y_0, desired_speed, ak, x_d, y_d])
 
-        state = self.state.reshape(self.observation_space.shape[0])
+        state = self.state.reshape(self.observation_space.shape[0]).astype(np.float32)
 
         return state
 
