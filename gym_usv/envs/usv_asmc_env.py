@@ -12,7 +12,7 @@ from gym.utils import seeding
 import numpy as np
 
 class UsvAsmcEnv(gym.Env):
-    metadata = {'render.modes': ['human']}
+    metadata = {'render.modes': ['human', 'rgb-array'], 'render_fps': 30}
 
     def __init__(self):
 
@@ -58,6 +58,10 @@ class UsvAsmcEnv(gym.Env):
         self.aux_vars = None
         self.last = None
         self.target = None
+
+        self.screen = None
+        self.clock = None
+        self.isopen = False
 
         self.max_y = 10
         self.min_y = -10
@@ -234,7 +238,7 @@ class UsvAsmcEnv(gym.Env):
 
         u_ak, v_ak = self.body_to_path(upsilon[0], upsilon[1], psi_ak)
 
-        if ye_abs > self.max_ye or eta[0] < self.min_x:
+        if ye_abs > self.max_ye or np.abs(eta[0]) > self.max_x:
             done = True
             reward = -1
         else:
@@ -247,11 +251,6 @@ class UsvAsmcEnv(gym.Env):
         self.last = np.array([eta_dot_last[0], eta_dot_last[1], eta_dot_last[2], upsilon_dot_last[0], upsilon_dot_last[1], upsilon_dot_last[2], e_u_last, Ka_dot_u_last, Ka_dot_psi_last], dtype=np.float32)
 
         state = self.state.reshape(self.observation_space.shape[0]).astype(np.float32)
-
-        try:
-            reward = reward[0].item()
-        except:
-            reward = reward.item()
 
         return state, reward, done, {}
 
@@ -277,7 +276,7 @@ class UsvAsmcEnv(gym.Env):
         y_0 = np.random.uniform(low=-2.5, high=2.5)
         x_d = np.random.uniform(low=15, high=30)
         y_d = y_0
-        desired_speed = np.random.uniform(low=0.4, high=1.4)
+        desired_speed = np.random.uniform(low=1.4, high=2.4)
 
         ak = np.math.atan2(y_d-y_0,x_d-x_0)
         ak = np.float32(ak)
@@ -302,12 +301,11 @@ class UsvAsmcEnv(gym.Env):
 
 
     def render(self, mode='human'):
-
         screen_width = 400
         screen_height = 800
 
         world_width = self.max_y - self.min_y
-        scale = screen_width/world_width
+        scale = screen_width / world_width
         boat_width = 15
         boat_height = 20
 
@@ -341,9 +339,23 @@ class UsvAsmcEnv(gym.Env):
 
         self.viewer.draw_line(start, end)
 
-        return self.viewer.render(return_rgb_array = mode == 'rgb_array')
+        return self.viewer.render()
+
+    def _create_image_array(self, screen, size):
+        import pygame
+
+        scaled_screen = pygame.transform.smoothscale(screen, size)
+        return np.transpose(
+            np.array(pygame.surfarray.pixels3d(scaled_screen)), axes=(1, 0, 2)
+        )
 
     def close(self):
+        if self.screen is not None:
+            import pygame
+
+            pygame.display.quit()
+            self.isopen = False
+            pygame.quit()
 
         if self.viewer:
             self.viewer.close()
@@ -354,10 +366,11 @@ class UsvAsmcEnv(gym.Env):
         psi_ak = np.abs(psi_ak)
 
         reward_action = self.w_action*np.math.tanh(-self.c_action*np.power(action_dot, 2))
-        reward_ye = np.where(np.greater(ye, self.sigma_ye), np.exp(-self.k_ye*ye), np.exp(-self.k_ye*np.power(ye, 2)/self.sigma_ye))
+        reward_ye = np.where(np.greater(ye, self.sigma_ye), np.exp(-self.k_ye*ye), np.exp(-self.k_ye*np.power(ye, 2)/self.sigma_ye)).item()
         reward_ak = -np.exp(self.k_ak*(psi_ak - np.pi))
 
-        reward = np.where(np.less(psi_ak, np.pi/2), reward_action + reward_ye, reward_ak)
+        reward = np.where(np.less(psi_ak, np.pi/2), reward_action + reward_ye, reward_ak).item()
+        #reward = reward_action + reward_ye + reward_ak
         return reward
 
     def body_to_path(self, x2, y2, alpha):

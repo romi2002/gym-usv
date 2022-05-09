@@ -12,6 +12,8 @@ from gym import error, spaces, utils
 from gym.utils import seeding
 from gym.envs.classic_control import rendering
 import numpy as np
+from collections import defaultdict
+from functools import lru_cache
 
 class UsvAsmcCaEnv(gym.Env):
     metadata = {'render.modes': ['human']}
@@ -347,34 +349,48 @@ class UsvAsmcCaEnv(gym.Env):
                 collision = True
 
          # Compute sensor readings
-        obs_order = np.argsort(distance) # order obstacles in closest to furthest
-        for i in range(len(self.sensors)):
-            self.sensors[i][0]= -np.pi*2/3 + i*self.lidar_resolution
-            self.sensors[i][1] = self.sensor_max_range
-            sensor_angle = psi + self.sensors[i][0]
-            sensor_angle = np.where(np.greater(np.abs(sensor_angle), np.pi), np.sign(sensor_angle)*(np.abs(sensor_angle)-2*np.pi), sensor_angle)
-            #m = np.math.tan(self.sensors[i][0]
-            for j in range(self.num_obs):
-                obs_index = obs_order[j]
-                posx,posy = self.ned_to_body(self.posx[obs_index], self.posy[obs_index], eta[0], eta[1], sensor_angle)
-                posy = -posy
-                if posx >= 0: #obstacle infront of sensor)
-                    delta = (self.radius[obs_index]*self.radius[obs_index])-(posy)*(posy)
-                    if delta >= 0: # intersection
+                # Compute sensor readings
+                obs_order = np.argsort(distance)  # order obstacles in closest to furthest
+
+                sensor_len = len(self.sensors)
+                self.sensors = np.vstack((-np.pi * 2 / 3 + np.arange(sensor_len) * self.lidar_resolution,
+                                          np.ones(sensor_len) * self.sensor_max_range)).T
+                sensor_angles = psi + self.sensors[:, 0]
+                sensor_angles = np.where(np.greater(np.abs(sensor_angles), np.pi),
+                                         np.sign(sensor_angles) * (np.abs(sensor_angles) - 2 * np.pi), sensor_angles)
+
+                obstacle_positions = np.zeros((self.num_obs, 2))
+                for i in range(self.num_obs):
+                    idx = obs_order[i]
+                    obstacle_positions[i] = np.array([self.posx[idx][0], self.posy[idx][0]])
+
+                boat_position = np.array([eta[0], eta[1]])
+                ned_obstacle_positions = self.compute_obstacle_positions(sensor_angles, obstacle_positions,
+                                                                         boat_position)
+
+                for i in range(sensor_len):
+                    for j in range(self.num_obs):
+                        (obs_x, obs_y) = ned_obstacle_positions[i][j]
+                        if (obs_x < 0):
+                            # Obstacle is behind sensor
+                            self.sensors[i][1] = self.sensor_max_range
+                            continue
+
+                        delta = (self.radius[j] * self.radius[j]) - (obs_y * obs_y)
+                        if delta < 0:
+                            continue
+
+                        # Intersection
                         y1 = 0
                         y2 = 0
-                        x1 = posx+np.sqrt(delta)
-                        x2 = posx-np.sqrt(delta)
-                        distance1 = np.sqrt(x1*x1+y1*y1)
-                        distance2 = np.sqrt(x2*x2+y2*y2)
+                        x1 = obs_x + np.sqrt(delta)
+                        x2 = obs_x - np.sqrt(delta)
+                        distance1 = np.sqrt(x1 * x1 + y1 * y1)
+                        distance2 = np.sqrt(x2 * x2 + y2 * y2)
                         if distance1 > distance2:
-                          self.sensors[i][1] = distance2
+                            self.sensors[i][1] = distance2
                         else:
-                          self.sensors[i][1] = distance1
-                        break
-                else:
-                    self.sensors[i][1] = self.sensor_max_range
-
+                            self.sensors[i][1] = distance1
         # Feasability pooling: compute sectors
         #sectors = self.max_sectors
         sectors = np.full((self.sector_num), self.sensor_max_range)
@@ -423,7 +439,7 @@ class UsvAsmcCaEnv(gym.Env):
         self.so_filter = np.array([psi_d_last, o_dot_dot_last, o_dot_last, o_last, o, o_dot, o_dot_dot])
 
         #Reshape state
-        state = self.state.reshape(self.observation_space.shape[0])
+        state = self.state.reshape(self.observation_space.shape[0]).astype(np.float32)
 
         return state, reward, done, {}
 
@@ -486,31 +502,44 @@ class UsvAsmcCaEnv(gym.Env):
 
         # Compute sensor readings
         obs_order = np.argsort(distance) # order obstacles in closest to furthest
-        for i in range(len(self.sensors)):
-            self.sensors[i][0]= -np.pi*2/3 + i*self.lidar_resolution
-            self.sensors[i][1] = self.sensor_max_range
-            sensor_angle = psi + self.sensors[i][0]
-            sensor_angle = np.where(np.greater(np.abs(sensor_angle), np.pi), np.sign(sensor_angle)*(np.abs(sensor_angle)-2*np.pi), sensor_angle)
+
+        sensor_len = len(self.sensors)
+        self.sensors = np.vstack((-np.pi * 2/3 + np.arange(sensor_len) * self.lidar_resolution, np.ones(sensor_len) * self.sensor_max_range)).T
+        sensor_angles = psi + self.sensors[:,0]
+        sensor_angles = np.where(np.greater(np.abs(sensor_angles), np.pi),
+                                np.sign(sensor_angles) * (np.abs(sensor_angles) - 2 * np.pi), sensor_angles)
+
+        obstacle_positions = np.zeros((self.num_obs, 2))
+        for i in range(self.num_obs):
+            idx = obs_order[i]
+            obstacle_positions[i] = np.array([self.posx[idx][0], self.posy[idx][0]])
+
+        boat_position = np.array([eta[0], eta[1]])
+        ned_obstacle_positions = self.compute_obstacle_positions(sensor_angles, obstacle_positions, boat_position)
+
+        for i in range(sensor_len):
             for j in range(self.num_obs):
-                obs_index = obs_order[j]
-                posx,posy = self.ned_to_body(self.posx[obs_index], self.posy[obs_index], eta[0], eta[1], sensor_angle)
-                posy = -posy
-                if posx >= 0: #obstacle infront of sensor
-                    delta = (self.radius[obs_index]*self.radius[obs_index])-(posy)*(posy)
-                    if delta >= 0: # intersection
-                        y1 = 0
-                        y2 = 0
-                        x1 = posx+np.sqrt(delta)
-                        x2 = posx-np.sqrt(delta)
-                        distance1 = np.sqrt(x1*x1+y1*y1)
-                        distance2 = np.sqrt(x2*x2+y2*y2)
-                        if distance1 > distance2:
-                          self.sensors[i][1] = distance2
-                        else:
-                          self.sensors[i][1] = distance1
-                        break
-                else:
+                (obs_x, obs_y) = ned_obstacle_positions[i][j]
+                if(obs_x < 0):
+                    #Obstacle is behind sensor
                     self.sensors[i][1] = self.sensor_max_range
+                    continue
+
+                delta = (self.radius[j] * self.radius[j]) - (obs_y * obs_y)
+                if delta < 0:
+                    continue
+
+                #Intersection
+                y1 = 0
+                y2 = 0
+                x1 = obs_x + np.sqrt(delta)
+                x2 = obs_x - np.sqrt(delta)
+                distance1 = np.sqrt(x1 * x1 + y1 * y1)
+                distance2 = np.sqrt(x2 * x2 + y2 * y2)
+                if distance1 > distance2:
+                    self.sensors[i][1] = distance2
+                else:
+                    self.sensors[i][1] = distance1
 
         # Feasability pooling: compute sectors
         #sectors = self.max_sectors
@@ -548,7 +577,7 @@ class UsvAsmcCaEnv(gym.Env):
         self.target = np.array([x_0, y_0, u_ref, ak, x_d, y_d])
         self.so_filter = np.array([psi_d_last, o_dot_dot_last, o_dot_last, o_last, o, o_dot, o_dot_dot])
 
-        state = self.state.reshape(self.observation_space.shape[0])
+        state = self.state.reshape(self.observation_space.shape[0]).astype(np.float32)
 
         return state
 
@@ -688,6 +717,50 @@ class UsvAsmcCaEnv(gym.Env):
                       [np.math.sin(angle), np.math.cos(angle)]])
         return (J)
 
+    def compute_obstacle_positions(self, sensor_angles, obstacle_pos, boat_pos):
+        sensor_angle_len = len(sensor_angles)
+        obstacle_len = len(obstacle_pos)
+
+        rm = np.zeros((sensor_angle_len, 2, 2))
+        for i in range(sensor_angle_len):
+            rm[i] = self.rotation_matrix(sensor_angles[i])
+
+        rm = np.linalg.inv(rm)
+
+        n = obstacle_pos - boat_pos
+
+        obs_pos = defaultdict(list)
+        for i in range(sensor_angle_len):
+            for j in range(obstacle_len):
+                obs_pos[sensor_angles[i]].append(rm[i].dot(n[j]))
+
+        return obs_pos
+
+    @lru_cache(maxsize=100000)
+    def compute_rot_matrix(self, psi):
+        J = self.rotation_matrix(psi)
+        return np.linalg.inv(J)
+
+    def compute_obstacle_positions(self, sensor_angles, obstacle_pos, boat_pos):
+        sensor_angle_len = len(sensor_angles)
+        obstacle_len = len(obstacle_pos)
+
+        rm = np.zeros((sensor_angle_len, 2, 2))
+        for i in range(sensor_angle_len):
+            rm[i] = self.rotation_matrix(sensor_angles[i])
+
+        rm = np.linalg.inv(rm)
+
+        n = obstacle_pos - boat_pos
+
+        obs_pos = np.zeros((sensor_angle_len, obstacle_len, 2))
+        for i in range(sensor_angle_len):
+            for j in range(obstacle_len):
+                obs_pos[i][j] = (rm[i].dot(n[j]))
+
+        obs_pos[:,:,1] *= -1 #y *= -1
+        return obs_pos
+
     def ned_to_body(self, ned_x2, ned_y2, ned_xboat, ned_yboat, psi):
         '''
         @name: ned_to_ned
@@ -700,9 +773,8 @@ class UsvAsmcCaEnv(gym.Env):
         @return: body_x2: target x coordinate in body reference frame
                 body_y2: target y coordinate in body reference frame
         '''
-        n = np.array([ned_x2 - ned_xboat, ned_y2 - ned_yboat])
-        J = self.rotation_matrix(psi)
-        J = np.linalg.inv(J)
+        n = np.array([ned_x2 - ned_xboat, ned_y2 - ned_yboat], dtype=np.float32)
+        J = self.compute_rot_matrix(psi.item())
         b = J.dot(n)
         body_x2 = b[0]
         body_y2 = b[1]
