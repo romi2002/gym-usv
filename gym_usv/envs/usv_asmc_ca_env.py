@@ -20,8 +20,7 @@ from functools import lru_cache
 class UsvAsmcCaEnv(gym.Env):
     metadata = {'render.modes': ['human']}
 
-    def __init__(self):
-
+    def __init__(self,config=None):
         # Integral step (or derivative) for 100 Hz
         self.integral_step = 0.01
 
@@ -438,6 +437,11 @@ class UsvAsmcCaEnv(gym.Env):
             done = True
         else:
             done = False
+
+        #Clamp ye and finish ep
+        if abs(ye) > self.max_ye:
+            ye = np.copysign(self.max_ye, ye)
+            done = True
 
         # Fill overall vector variables
         self.state = np.hstack(
