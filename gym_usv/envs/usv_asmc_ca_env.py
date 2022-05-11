@@ -111,13 +111,13 @@ class UsvAsmcCaEnv(gym.Env):
         self.w_chi = 0.4
         self.k_ye = 0.5
         self.k_uu = 15.0
-        self.gamma_theta = 1.0  # 4.0
-        self.gamma_x = 1.0  # 0.005
-        self.epsilon = 1.0
+        self.gamma_theta = 4.0  # 4.0
+        self.gamma_x = 0.005  # 0.005
+        self.epsilon = 1
         self.sigma_ye = 1.
-        self.lambda_reward = 0.9
-        self.w_action0 = 0.2
-        self.w_action1 = 0.2
+        self.lambda_reward = 0.8
+        self.w_action0 = 0.234
+        self.w_action1 = 0.425
         self.c_action0 = 1. / np.power((self.max_action0 / 2 - self.min_action0 / 2) / self.integral_step, 2)
         self.c_action1 = 1. / np.power((self.max_action1 / 2 - self.min_action1 / 2) / self.integral_step, 2)
 
@@ -349,12 +349,10 @@ class UsvAsmcCaEnv(gym.Env):
 
         collision = False
         # Compute collision
-        distance = np.empty([self.num_obs])
-        for i in range(self.num_obs):
-            distance[i] = np.sqrt(np.power((self.posx[i] - eta[0]), 2) + np.power((self.posy[i] - eta[1]), 2))
-            distance[i] = distance[i] - self.radius[i] - self.boat_radius - self.safety_radius
-            if distance[i] < self.safety_distance:
-                collision = True
+        distance = np.hypot(self.posx - eta[0], self.posy - eta[1]) - self.radius - self.boat_radius - self.safety_radius
+        distance = distance.reshape(-1)
+        #TODO Set collision to true?
+        collision = False
 
         # Compute sensor readings
         obs_order = np.argsort(distance)  # order obstacles in closest to furthest
@@ -454,6 +452,12 @@ class UsvAsmcCaEnv(gym.Env):
 
         # Reshape state
         state = self.state.reshape(self.observation_space.shape[0]).astype(np.float32)
+
+        if position[0] < self.min_x or position[0] > self.max_x:
+            done = True
+
+        if position[1] < self.min_y or position[1] > self.max_y:
+            done = True
 
         return state, reward, done, {}
 
@@ -708,18 +712,21 @@ class UsvAsmcCaEnv(gym.Env):
             # Path following reward 
             reward_pf = self.w_y * reward_ye + self.w_chi * reward_chi + self.w_u * reward_u + self.w_action0 * reward_a0 + self.w_action1 * reward_a1
             # Obstacle avoidance reward
-            numerator = 0.0
-            denominator = 0.0
-            for i in range(len(self.sensors)):
-                numerator = numerator + (1. / (1 + np.abs(self.gamma_theta * self.sensors[i][1]))) * (
-                            1. / (self.gamma_x * np.power(np.max([self.sensors[i][0], self.epsilon]), 2)))
-                denominator = denominator + 1. / (1 + np.abs(self.gamma_theta * self.sensors[i][1]))
+            numerator = np.sum(np.power(1+np.abs(self.sensors[:,0] * self.gamma_theta), -1) * np.power(self.gamma_x * np.power(np.maximum(self.sensors[:,1], self.epsilon), 2), -1))
+            denominator = np.sum(1 / (1 + np.abs(self.gamma_theta * self.sensors[:, 0])))
             reward_oa = -numerator / denominator
+
+            #Exists reward
+            reward_exists = -self.lambda_reward * 0.1
+
             # Total non-collision reward
-            reward = self.lambda_reward * reward_pf + (1 - self.lambda_reward) * reward_oa
+            reward = self.lambda_reward * reward_pf + (1 - self.lambda_reward) * reward_oa + reward_exists
         else:
             # Collision Reward
-            reward = -1000
+            reward = (1 - self.lambda_reward) * -1000
+
+        if(np.abs(reward) > 10000):
+            print("PANIK")
         return reward
 
     def body_to_path(self, x2, y2, alpha):
