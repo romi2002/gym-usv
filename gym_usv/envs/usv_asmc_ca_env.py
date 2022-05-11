@@ -11,7 +11,6 @@ import gym
 import numba
 from gym import error, spaces, utils
 from gym.utils import seeding
-from gym.envs.classic_control import rendering
 import numpy as np
 from collections import defaultdict
 from functools import lru_cache
@@ -127,8 +126,8 @@ class UsvAsmcCaEnv(gym.Env):
         self.max_u = 1.5
         self.min_v = -1.0
         self.max_v = 1.0
-        self.min_r = -1.
-        self.max_r = 1.
+        self.min_r = -4.
+        self.max_r = 4.
         self.min_ye = -10.
         self.max_ye = 10.
         self.min_ye_dot = -1.5
@@ -602,6 +601,7 @@ class UsvAsmcCaEnv(gym.Env):
         return state
 
     def render(self, mode='human'):
+        from gym.envs.classic_control import rendering
 
         screen_width = 400
         screen_height = 800
