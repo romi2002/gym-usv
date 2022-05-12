@@ -81,7 +81,8 @@ class UsvAsmcCaEnv(gym.Env):
         self.lidar_resolution = self.sensor_span / self.sensor_num  # angle resolution in radians
         self.sector_num = 25  # number of sectors
         self.sector_size = np.int(self.sensor_num / self.sector_num)  # number of points per sector
-        self.sensor_max_range = 100.0  # m
+        self.sensor_max_range = 150.0  # m
+        self.last_reward = 0
 
         # Boat radius
         self.boat_radius = 0.5
@@ -106,18 +107,18 @@ class UsvAsmcCaEnv(gym.Env):
         self.max_action1 = np.pi / 2
 
         # Reward associated functions anf gains
-        self.w_y = 0.4
-        self.w_u = 0.2
-        self.w_chi = 0.4
-        self.k_ye = 0.5
+        self.w_y = 0.7
+        self.w_u = 0.35
+        self.w_chi = 0.8
+        self.k_ye = 1.5
         self.k_uu = 15.0
         self.gamma_theta = 4.0  # 4.0
         self.gamma_x = 0.005  # 0.005
-        self.epsilon = 1
+        self.epsilon = 0.1
         self.sigma_ye = 1.
-        self.lambda_reward = 0.8
-        self.w_action0 = 0.234
-        self.w_action1 = 0.425
+        self.lambda_reward = 0.9
+        self.w_action0 = 0.5
+        self.w_action1 = 0.01
         self.c_action0 = 1. / np.power((self.max_action0 / 2 - self.min_action0 / 2) / self.integral_step, 2)
         self.c_action1 = 1. / np.power((self.max_action1 / 2 - self.min_action1 / 2) / self.integral_step, 2)
 
@@ -137,7 +138,7 @@ class UsvAsmcCaEnv(gym.Env):
         self.min_u_ref = 0.3
         self.max_u_ref = 1.4
         self.min_sectors = np.zeros((self.sector_num))
-        self.max_sectors = np.full((self.sector_num), self.sensor_max_range)
+        self.max_sectors = np.full((self.sector_num), 1)
         self.sectors = np.zeros((self.sector_num))
 
         # Min and max state vectors
@@ -347,12 +348,16 @@ class UsvAsmcCaEnv(gym.Env):
         ye = -(eta[0] - x_0) * np.math.sin(ak) + (eta[1] - y_0) * np.math.cos(ak)
         ye_abs = np.abs(ye)
 
-        collision = False
         # Compute collision
+        done = False
+
         distance = np.hypot(self.posx - eta[0], self.posy - eta[1]) - self.radius - self.boat_radius - self.safety_radius
         distance = distance.reshape(-1)
-        #TODO Set collision to true?
-        collision = False
+        if distance.size == 0:
+            collision = False
+        else:
+            collision = np.min(distance) < 0
+            done = collision
 
         # Compute sensor readings
         obs_order = np.argsort(distance)  # order obstacles in closest to furthest
@@ -391,25 +396,26 @@ class UsvAsmcCaEnv(gym.Env):
                     continue
 
                 new_distance = obs_x - np.sqrt(delta)
-                self.sensors[i][1] = min(self.sensors[i][1], new_distance)
+                if new_distance < self.sensor_max_range:
+                    self.sensors[i][1] = min(self.sensors[i][1], new_distance)
 
         # Feasability pooling: compute sectors
         # sectors = self.max_sectors
         sectors = np.full((self.sector_num), self.sensor_max_range)
         for i in range(self.sector_num):  # loop through sectors
             x = self.sensors[i * self.sector_size:(i + 1) * self.sector_size, 1]
-            if np.all(x == 100):
+            if np.all(x == self.sensor_max_range):
                 continue
             x_ordered = np.argsort(x)
             for j in range(self.sector_size):  # loop through
                 x_index = x_ordered[j]
                 arc_length = self.lidar_resolution * x[x_index]
-                opening_width = 0
+                opening_width = arc_length / 2
                 opening_found = False
                 for k in range(self.sector_size):
                     if x[k] > x[x_index]:
                         opening_width = opening_width + arc_length
-                        if opening_width > (2 * (self.boat_radius + self.safety_radius)):
+                        if opening_width > (self.boat_radius + self.safety_radius):
                             opening_found = True
                             break
                     else:
@@ -430,10 +436,10 @@ class UsvAsmcCaEnv(gym.Env):
         xe_dot, ye_dot = self.body_to_path(upsilon[0], upsilon[1], psi_ak)
 
         # If USV collides, abort
-        if collision == True:
-            done = True
-        else:
-            done = False
+        # if collision == True:
+        #
+        # else:
+        #     done = False
 
         #Clamp ye and finish ep
         if abs(ye) > self.max_ye:
@@ -453,11 +459,15 @@ class UsvAsmcCaEnv(gym.Env):
         # Reshape state
         state = self.state.reshape(self.observation_space.shape[0]).astype(np.float32)
 
+        # finish and penalize if oob
         if position[0] < self.min_x or position[0] > self.max_x:
             done = True
+            reward = (1 - self.lambda_reward) * -100
 
         if position[1] < self.min_y or position[1] > self.max_y:
             done = True
+            if(position[1] < self.min_y):
+                reward = (1 - self.lambda_reward) * -100
 
         return state, reward, done, {}
 
@@ -466,7 +476,6 @@ class UsvAsmcCaEnv(gym.Env):
         x = np.random.uniform(low=-2.5, high=2.5)
         y = np.random.uniform(low=-5.0, high=5.0)
         psi = np.random.uniform(low=-np.pi, high=np.pi)
-        psi = 0
         eta = np.array([x, y])
         upsilon = np.array([0., 0., 0.])
         eta_dot_last = np.array([0., 0., 0.])
@@ -494,11 +503,22 @@ class UsvAsmcCaEnv(gym.Env):
         # Desired speed
         u_ref = np.random.uniform(low=self.min_u_ref, high=self.max_u_ref)
         # number of obstacles 
-        self.num_obs = np.random.random_integers(low=0, high=20)
+        self.num_obs = np.random.random_integers(low=2, high=20)
         # array of positions in x and y and radius
         self.posx = np.random.normal(15, 10, size=(self.num_obs, 1))
         self.posy = np.random.uniform(low=-10, high=10, size=(self.num_obs, 1))
         self.radius = np.random.uniform(low=0.1, high=1.5, size=(self.num_obs, 1))
+
+        distance = np.hypot(self.posx - eta[0],
+                            self.posy - eta[1]) - self.radius - self.boat_radius - (self.safety_radius + 1.0)
+        distance = distance.reshape(-1)
+
+        # Delete all obstacles within boat radius
+        elems_to_delete = np.flatnonzero(distance < 0)
+        self.posx = np.delete(self.posx, elems_to_delete).reshape(-1,1)
+        self.posy = np.delete(self.posy, elems_to_delete).reshape(-1,1)
+        self.radius = np.delete(self.radius, elems_to_delete).reshape(-1,1)
+        self.num_obs -= elems_to_delete.size
 
         ak = np.math.atan2(y_d - y_0, x_d - x_0)
         ak = np.float32(ak)
@@ -606,6 +626,7 @@ class UsvAsmcCaEnv(gym.Env):
 
     def render(self, mode='human'):
         from gym.envs.classic_control import rendering
+        import pyglet
 
         screen_width = 400
         screen_height = 800
@@ -709,8 +730,12 @@ class UsvAsmcCaEnv(gym.Env):
             reward_a0 = np.math.tanh(-self.c_action0 * np.power(action_dot0, 2))
             # Action angle gradual change reward
             reward_a1 = np.math.tanh(-self.c_action1 * np.power(action_dot1, 2))
+            reward_a0 = 0
+            reward_a1 = 0
+
             # Path following reward 
             reward_pf = self.w_y * reward_ye + self.w_chi * reward_chi + self.w_u * reward_u + self.w_action0 * reward_a0 + self.w_action1 * reward_a1
+
             # Obstacle avoidance reward
             numerator = np.sum(np.power(1+np.abs(self.sensors[:,0] * self.gamma_theta), -1) * np.power(self.gamma_x * np.power(np.maximum(self.sensors[:,1], self.epsilon), 2), -1))
             denominator = np.sum(1 / (1 + np.abs(self.gamma_theta * self.sensors[:, 0])))
@@ -721,12 +746,15 @@ class UsvAsmcCaEnv(gym.Env):
 
             # Total non-collision reward
             reward = self.lambda_reward * reward_pf + (1 - self.lambda_reward) * reward_oa + reward_exists
+
+            if (np.abs(reward) > 50 and not collision):
+                print("PANIK")
+
         else:
             # Collision Reward
-            reward = (1 - self.lambda_reward) * -1000
+            reward = (1 - self.lambda_reward) * -200
 
-        if(np.abs(reward) > 10000):
-            print("PANIK")
+        #print(reward)
         return reward
 
     def body_to_path(self, x2, y2, alpha):
@@ -791,8 +819,6 @@ class UsvAsmcCaEnv(gym.Env):
         for i in range(sensor_angle_len):
             for j in range(obstacle_len):
                 obs_pos[i][j] = (rm[i].dot(n[j]))
-
-        obs_pos_orig = obs_pos
 
         obs_pos[:, :, 1] *= -1  # y *= -1
         return obs_pos
