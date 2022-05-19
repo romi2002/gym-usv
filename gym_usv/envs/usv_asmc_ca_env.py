@@ -8,7 +8,6 @@ avoidance on the OpenAI Gym library.
 """
 
 import gym
-import numba
 from gym import error, spaces, utils
 from gym.utils import seeding
 import numpy as np
