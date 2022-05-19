@@ -177,7 +177,7 @@ class UsvAsmcCaEnv(gym.Env):
             3], state[4], state[5], state[6], state[7:32], state[32], state[33]
         x, y, psi = position
 
-        eta, upsilon = self._compute_asmc(action)
+        eta, upsilon, psi = self._compute_asmc(action)
 
         # Calculate action derivative for reward
         action_dot0 = (action[0] - action0_last) / self.integral_step
@@ -259,9 +259,9 @@ class UsvAsmcCaEnv(gym.Env):
         return state, reward, done, {}
 
     def reset(self):
-        x = 5
-        y = 5
-        psi = np.pi
+        x = np.random.uniform(low=-2.5, high=2.5)
+        y = np.random.uniform(low=-5.0, high=5.0)
+        psi = np.random.uniform(low=-np.pi, high=np.pi)
         eta = np.array([x, y])
         upsilon = np.array([0., 0., 0.])
         eta_dot_last = np.array([0., 0., 0.])
@@ -347,7 +347,7 @@ class UsvAsmcCaEnv(gym.Env):
         upsilon_dot_last = np.array([u_dot_last, v_dot_last, r_dot_last])
 
         for i in range(10):
-            beta = np.math.asin(upsilon[1] / (0.001 + np.sqrt(upsilon[0] * upsilon[0] + upsilon[1] * upsilon[1])))
+            beta = np.math.asin(upsilon[1] / (0.001 + np.hypot(upsilon[0], upsilon[1])))
             chi = psi + beta
             chi = np.where(np.greater(np.abs(chi), np.pi), (np.sign(chi)) * (np.abs(chi) - 2 * np.pi), chi)
 
@@ -485,7 +485,7 @@ class UsvAsmcCaEnv(gym.Env):
             eta_dot_last = eta_dot
 
             psi = eta[2]
-            eta[2] = np.where(np.greater(np.abs(psi), np.pi), (np.sign(psi)) * (np.abs(psi) - 2 * np.pi), psi)
+            psi = np.where(np.greater(np.abs(psi), np.pi), (np.sign(psi)) * (np.abs(psi) - 2 * np.pi), psi)
 
 
         self.last = np.array(
@@ -495,7 +495,7 @@ class UsvAsmcCaEnv(gym.Env):
         self.so_filter = np.array([psi_d_last, o_dot_dot_last, o_dot_last, o_last, o, o_dot, o_dot_dot])
         self.aux_vars = np.array([e_u_int, Ka_u, Ka_psi])
 
-        return eta, upsilon
+        return eta, upsilon, psi
 
 
     def _compute_sensor_measurments(self, distance):
