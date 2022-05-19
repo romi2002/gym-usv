@@ -100,25 +100,25 @@ class UsvAsmcCaEnv(gym.Env):
 
         # Min and max actions
         # velocity 
-        self.min_action0 = -1.0
+        self.min_action0 = 0
         self.max_action0 = 1.0
         # angle (change to -pi and pi if necessary)
         self.min_action1 = -np.pi / 2
         self.max_action1 = np.pi / 2
 
         # Reward associated functions anf gains
-        self.w_y = 0.7
-        self.w_u = 0.75
-        self.w_chi = 1.25
+        self.w_y = 1.25
+        self.w_u = 0.95
+        self.w_chi = 4.0
         self.k_ye = 0.05
-        self.k_uu = 16.0
+        self.k_uu = 13
         self.gamma_theta = 4.0  # 4.0
         self.gamma_x = 0.005  # 0.005
         self.epsilon = 1
         self.sigma_ye = 1.
-        self.lambda_reward = 0.9
-        self.w_action0 = 0.75
-        self.w_action1 = 0.05
+        self.lambda_reward = 0.925
+        self.w_action0 = 0.45
+        self.w_action1 = 0.1
         self.c_action0 = 1. / np.power((self.max_action0 / 2 - self.min_action0 / 2) / self.integral_step, 2)
         self.c_action1 = 1. / np.power((self.max_action1 / 2 - self.min_action1 / 2) / self.integral_step, 2)
 
@@ -135,7 +135,7 @@ class UsvAsmcCaEnv(gym.Env):
         self.max_ye_dot = 1.5
         self.min_chi_ak = -np.pi
         self.max_chi_ak = np.pi
-        self.min_u_ref = 0.3
+        self.min_u_ref = 0.4
         self.max_u_ref = 1.4
         self.min_sectors = np.zeros((self.sector_num))
         self.max_sectors = np.full((self.sector_num), 1)
@@ -445,6 +445,7 @@ class UsvAsmcCaEnv(gym.Env):
         #Clamp ye and finish ep
         if abs(ye) > self.max_ye:
             ye = np.copysign(self.max_ye, ye)
+            reward = (1 - self.lambda_reward) * -200
             done = True
 
         # Fill overall vector variables
@@ -469,6 +470,8 @@ class UsvAsmcCaEnv(gym.Env):
             done = True
             if position[1] < self.min_y:
                 reward = (1 - self.lambda_reward) * -200
+            else:
+                reward += (1 - self.lambda_reward) * 200
 
         return state, reward, done, {}
 
@@ -508,7 +511,7 @@ class UsvAsmcCaEnv(gym.Env):
         # array of positions in x and y and radius
         self.posx = np.random.normal(15, 10, size=(self.num_obs, 1))
         self.posy = np.random.uniform(low=-10, high=10, size=(self.num_obs, 1))
-        self.radius = np.random.uniform(low=0.1, high=1.5, size=(self.num_obs, 1))
+        self.radius = np.random.uniform(low=0.5, high=1.75, size=(self.num_obs, 1))
 
         distance = np.hypot(self.posx - eta[0],
                             self.posy - eta[1]) - self.radius - self.boat_radius - (self.safety_radius + 1.0)
@@ -734,10 +737,10 @@ class UsvAsmcCaEnv(gym.Env):
             reward_a1 = np.math.tanh(-self.c_action1 * np.power(action_dot1, 2))
 
             # Path following reward 
-            reward_pf = self.w_y * reward_ye + self.w_chi * reward_chi + self.w_u * reward_u + self.w_action0 * reward_a0 + self.w_action1 * reward_a1
             reward_coursedirection = self.w_chi * np.cos(chi_ak) * (np.hypot(u, v) / self.max_action0) + 1
             reward_crosstrack = np.exp(-self.k_ye * np.abs(ye)) + 1
             reward_pf = -1 + reward_coursedirection * reward_crosstrack
+            reward_pf = self.w_y * reward_ye + self.w_chi * reward_chi + self.w_u * reward_u + self.w_action0 * reward_a0 + self.w_action1 * reward_a1
 
             # Obstacle avoidance reward
             numerator = np.sum(np.power(1+np.abs(self.sensors[:,0] * self.gamma_theta), -1) * np.power(self.gamma_x * np.power(np.maximum(self.sensors[:,1], self.epsilon), 2), -1))
@@ -745,7 +748,7 @@ class UsvAsmcCaEnv(gym.Env):
             reward_oa = -numerator / denominator
 
             #Exists reward
-            reward_exists = -self.lambda_reward * 0.24
+            reward_exists = -self.lambda_reward * 1.24
 
             # Total non-collision reward
             reward = self.lambda_reward * reward_pf + (1 - self.lambda_reward) * reward_oa + reward_exists
