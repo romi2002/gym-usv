@@ -16,7 +16,7 @@ from functools import lru_cache
 
 
 class UsvAsmcCaEnv(gym.Env):
-    metadata = {'render.modes': ['human']}
+    metadata = {'render.modes': ['human', 'rgb_array'], 'render_fps': 60}
 
     def __init__(self,config=None):
         # Integral step (or derivative) for 100 Hz
@@ -157,6 +157,7 @@ class UsvAsmcCaEnv(gym.Env):
 
         self.screen = None
         self.clock = None
+        self.isopen = True
 
     def step(self, action):
         '''
@@ -669,7 +670,7 @@ class UsvAsmcCaEnv(gym.Env):
         boat_points = [(x,y - boat_height / 2) for (x,y) in boat_points]
         boat_points = self._transform_points(boat_points, (self.position[1] - self.min_y) * scale, (self.position[0] - self.min_x) * scale, -self.position[2])
 
-        pygame.draw.polygon(self.surf, (255,0,0), boat_points)
+        pygame.draw.polygon(self.surf, (3,94,252), boat_points)
 
     def _draw_obstacles(self, scale):
         import pygame
@@ -696,10 +697,7 @@ class UsvAsmcCaEnv(gym.Env):
             angle = angle + self.sensor_span / self.sector_num
             angle = np.where(np.greater(np.abs(angle), np.pi), np.sign(angle) * (np.abs(angle) - 2 * np.pi), angle)
 
-
     def render(self, mode='human'):
-        import pyglet
-
         screen_width = 400
         screen_height = 800
 
@@ -743,11 +741,17 @@ class UsvAsmcCaEnv(gym.Env):
 
         self.surf = pygame.transform.flip(self.surf, False, True)
         self.screen.blit(self.surf, (0,0))
-        pygame.display.flip()
-        return
 
-
-        return self.viewer.render(return_rgb_array=mode == 'rgb_array')
+        if mode == "human":
+            pygame.event.pump()
+            self.clock.tick(self.metadata["render_fps"])
+            pygame.display.flip()
+        if mode == "rgb_array":
+            return np.transpose(
+                np.array(pygame.surfarray.pixels3d(self.screen)), axes=(1, 0, 2)
+            )
+        else:
+            return self.isopen
 
     def _create_image_array(self, screen, size):
         import pygame
