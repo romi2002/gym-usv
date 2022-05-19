@@ -474,10 +474,9 @@ class UsvAsmcCaEnv(gym.Env):
         return state, reward, done, {}
 
     def reset(self):
-
-        x = np.random.uniform(low=-2.5, high=2.5)
-        y = np.random.uniform(low=-5.0, high=5.0)
-        psi = np.random.uniform(low=-np.pi, high=np.pi)
+        x = 5
+        y = 5
+        psi = np.pi
         eta = np.array([x, y])
         upsilon = np.array([0., 0., 0.])
         eta_dot_last = np.array([0., 0., 0.])
@@ -626,66 +625,18 @@ class UsvAsmcCaEnv(gym.Env):
 
         return state
 
-    def render(self, mode='human'):
-        import pyglet
+    def _transform_points(self, points, x, y, angle):
+        if angle is not None:
+            s,c = (np.sin(angle), np.cos(angle))
+            points = [(px * c - py * s, px * s + py * c) for (px, py) in points]
+        points = [(px + x, py + y) for (px, py) in points]
+        return points
 
-        screen_width = 400
-        screen_height = 800
-
-        world_width = self.max_y - self.min_y
-        scale = screen_width / world_width
-        boat_width = 15
-        boat_height = 20
-
+    def _draw_sectors(self, scale):
         import pygame
-        if self.screen is None:
-            pygame.init()
-            pygame.display.init()
-            self.screen = pygame.display.set_mode((screen_width, screen_height))
-        if self.clock is None:
-            self.clock = pygame.time.Clock()
-
-        self.surf = pygame.Surface((screen_width, screen_height))
-        self.surf.fill((255, 255, 255))
-
         x = self.position[0]
         y = self.position[1]
         psi = self.position[2]
-
-        clearance = -10
-        l, r, t, b, c, m = -boat_width / 2, boat_width / 2, boat_height, 0, 0, boat_height / 2
-        boat_points = [(l, b), (l, m), (c, t), (r, m), (r, b)]
-        boat_points = [(px + (y - self.min_y) * scale, py + (x - self.min_x) * scale) for (px,py) in boat_points]
-        rot = self.rotation_matrix(-psi)
-        boat_points = [np.dot(rot, point) for point in boat_points]
-        pygame.draw.polygon(self.surf, (255,0,0), boat_points)
-
-        self.screen.blit(self.surf, (0,0))
-        pygame.display.flip()
-        return
-
-
-        boat.add_attr(rendering.Transform(translation=(0, clearance)))
-        self.boat_trans = rendering.Transform()
-        boat.add_attr(self.boat_trans)
-        self.viewer.add_geom(boat)
-
-        x_0 = (self.min_x - self.min_x) * scale
-        y_0 = (self.target[1] - self.min_y) * scale
-        x_d = (self.max_x - self.min_x) * scale
-        y_d = (self.target[5] - self.min_y) * scale
-        start = (y_0, x_0)
-        end = (y_d, x_d)
-
-        self.viewer.draw_line(start, end)
-
-        for i in range(self.num_obs):
-            transform2 = rendering.Transform(translation=(
-            (self.posy[i] - self.min_y) * scale, (self.posx[i] - self.min_x) * scale))  # Relative offset
-            self.viewer.draw_circle(self.radius[i] * scale, 30, True, color=(0, 0, 255)).add_attr(transform2)
-
-        safety = rendering.Transform(
-            translation=((y - self.min_y) * scale, (x - self.min_x) * scale))  # Relative offset
 
         for i in range(len(self.sensors)):
             angle = self.sensors[i][0] + psi
@@ -706,7 +657,32 @@ class UsvAsmcCaEnv(gym.Env):
             elif(i % 10 == 0):
                 color = (0,0,255)
 
-            self.viewer.draw_line(initial, final, color=color)
+            pygame.draw.line(self.surf, color, initial, final)
+
+    def _draw_boat(self, scale):
+        import pygame
+        boat_width = 15
+        boat_height = 20
+
+        l, r, t, b, c, m = -boat_width / 2, boat_width / 2, boat_height, 0, 0, boat_height / 2
+        boat_points = [(l, b), (l, m), (c, t), (r, m), (r, b)]
+        boat_points = [(x,y - boat_height / 2) for (x,y) in boat_points]
+        boat_points = self._transform_points(boat_points, (self.position[1] - self.min_y) * scale, (self.position[0] - self.min_x) * scale, -self.position[2])
+
+        pygame.draw.polygon(self.surf, (255,0,0), boat_points)
+
+    def _draw_obstacles(self, scale):
+        import pygame
+        for i in range(self.num_obs):
+            obs_points = [(self.posy[i][0] * scale, self.posx[i][0] * scale)]
+            obs_points = self._transform_points(obs_points,  -self.min_y * scale, -self.min_x * scale, None)
+            pygame.draw.circle(self.surf, (0,0,255), obs_points[0], self.radius[i][0] * scale)
+
+    def _draw_highlighted_sectors(self, scale):
+        import pygame
+        x = self.position[0]
+        y = self.position[1]
+        psi = self.position[2]
 
         angle = -(2 / 3) * np.pi + psi
         angle = np.where(np.greater(np.abs(angle), np.pi), np.sign(angle) * (np.abs(angle) - 2 * np.pi), angle)
@@ -716,14 +692,59 @@ class UsvAsmcCaEnv(gym.Env):
             x_f = self.sensor_max_range * np.math.cos(angle) + x - self.min_x
             y_f = self.sensor_max_range * np.math.sin(angle) + y - self.min_y
             final = (y_f * scale, x_f * scale)
-            self.viewer.draw_line(initial, final)
+            pygame.draw.line(self.surf, (0,0,0), initial, final, width=2)
             angle = angle + self.sensor_span / self.sector_num
             angle = np.where(np.greater(np.abs(angle), np.pi), np.sign(angle) * (np.abs(angle) - 2 * np.pi), angle)
 
-        self.viewer.draw_line(start, end, color=(0, 255, 255))
 
-        self.viewer.draw_circle((self.boat_radius + self.safety_radius) * scale, 30, False, color=(255, 0, 0)).add_attr(
-            safety)
+    def render(self, mode='human'):
+        import pyglet
+
+        screen_width = 400
+        screen_height = 800
+
+        world_width = self.max_y - self.min_y
+        scale = screen_width / world_width
+        x = self.position[0]
+        y = self.position[1]
+        psi = self.position[2]
+
+        import pygame
+        if self.screen is None:
+            pygame.init()
+            pygame.display.init()
+            self.screen = pygame.display.set_mode((screen_width, screen_height))
+        if self.clock is None:
+            self.clock = pygame.time.Clock()
+
+        self.surf = pygame.Surface((screen_width, screen_height))
+        self.surf.fill((255, 255, 255))
+
+        self._draw_sectors(scale)
+        self._draw_obstacles(scale)
+        self._draw_boat(scale)
+
+        clearance = -10
+
+        x_0 = (self.min_x - self.min_x) * scale
+        y_0 = (self.target[1] - self.min_y) * scale
+        x_d = (self.max_x - self.min_x) * scale
+        y_d = (self.target[5] - self.min_y) * scale
+        start = (y_0, x_0)
+        end = (y_d, x_d)
+
+        #Draw path
+        pygame.draw.line(self.surf, (0, 255, 0), start, end, width=2)
+
+        #Draw safety radius
+        safety_radius = (self.boat_radius + self.safety_radius) * scale
+        safety = ((y - self.min_y) * scale, (x - self.min_x) * scale)
+        pygame.draw.circle(self.surf, (255,0,0), safety, safety_radius, width=3)
+
+        self.surf = pygame.transform.flip(self.surf, False, True)
+        self.screen.blit(self.surf, (0,0))
+        pygame.display.flip()
+        return
 
 
         return self.viewer.render(return_rgb_array=mode == 'rgb_array')
