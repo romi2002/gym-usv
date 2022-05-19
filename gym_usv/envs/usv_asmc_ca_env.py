@@ -171,31 +171,180 @@ class UsvAsmcCaEnv(gym.Env):
         # Read overall vector variables
         state = self.state
         position = self.position
-        aux_vars = self.aux_vars
-        last = self.last
-        target = self.target
-        so_filter = self.so_filter
 
         # Change from vectors to scalars
         u, v, r, ye, ye_dot, chi_ak, u_ref, sectors, action0_last, action1_last = state[0], state[1], state[2], state[
             3], state[4], state[5], state[6], state[7:32], state[32], state[33]
         x, y, psi = position
-        e_u_int, Ka_u, Ka_psi = aux_vars
-        x_dot_last, y_dot_last, psi_dot_last, u_dot_last, v_dot_last, r_dot_last, e_u_last, Ka_dot_u_last, Ka_dot_psi_last = last
-        x_0, y_0, u_ref, ak, x_d, y_d = target
-        psi_d_last, o_dot_dot_last, o_dot_last, o_last, o, o_dot, o_dot_dot = so_filter
 
-        # Create model related vectors
-        eta = np.array([x, y, psi])
-        upsilon = np.array([u, v, r])
-        eta_dot_last = np.array([x_dot_last, y_dot_last, psi_dot_last])
-        upsilon_dot_last = np.array([u_dot_last, v_dot_last, r_dot_last])
+        eta, upsilon = self._compute_asmc(action)
 
         # Calculate action derivative for reward
         action_dot0 = (action[0] - action0_last) / self.integral_step
         action_dot1 = (action[1] - action1_last) / self.integral_step
         action0_last = action[0]
         action1_last = action[1]
+
+        x_0, y_0, u_ref, ak, x_d, y_d = self.target
+        ak = np.math.atan2(y_d - y_0, x_d - x_0)
+        ak = np.float32(ak)
+
+        beta = np.math.asin(upsilon[1] / (0.001 + np.sqrt(upsilon[0] * upsilon[0] + upsilon[1] * upsilon[1])))
+        chi = psi + beta
+        chi = np.where(np.greater(np.abs(chi), np.pi), (np.sign(chi)) * (np.abs(chi) - 2 * np.pi), chi)
+        # Compute angle between USV and path
+        chi_ak = chi - ak
+        chi_ak = np.where(np.greater(np.abs(chi_ak), np.pi), (np.sign(chi_ak)) * (np.abs(chi_ak) - 2 * np.pi), chi_ak)
+        psi_ak = psi - ak
+        psi_ak = np.where(np.greater(np.abs(psi_ak), np.pi), (np.sign(psi_ak)) * (np.abs(psi_ak) - 2 * np.pi), psi_ak)
+
+        # Compute cross-track error
+        ye = -(eta[0] - x_0) * np.math.sin(ak) + (eta[1] - y_0) * np.math.cos(ak)
+        ye_abs = np.abs(ye)
+
+        # Compute collision
+        done = False
+
+        distance = np.hypot(self.posx - eta[0], self.posy - eta[1]) - self.radius - self.boat_radius - self.safety_radius
+        distance = distance.reshape(-1)
+        if distance.size == 0:
+            collision = False
+        else:
+            collision = np.min(distance) < 0
+            done = collision
+
+        # Compute sensor readings
+        self._compute_sensor_measurments(distance)
+
+        # Feasability pooling: compute sectors
+        sectors = self._compute_feasability_pooling()
+        self.sectors = sectors
+        sectors = (1 - sectors / self.sensor_max_range)
+
+        # Compute reward
+        reward = self.compute_reward(ye_abs, chi_ak, action_dot0, action_dot1, collision, u_ref, u, v)
+
+        # Compute velocities relative to path (for ye derivative as ye_dot = v_ak)
+        xe_dot, ye_dot = self.body_to_path(upsilon[0], upsilon[1], psi_ak)
+
+        # If USV collides, abort
+        # if collision == True:
+        #
+        # else:
+        #     done = False
+
+        #Clamp ye and finish ep
+        if abs(ye) > self.max_ye:
+            ye = np.copysign(self.max_ye, ye)
+            done = True
+
+        # Fill overall vector variables
+        self.state = np.hstack(
+            (upsilon[0], upsilon[1], upsilon[2], ye, ye_dot, chi_ak, u_ref, sectors, action0_last, action1_last))
+        self.position = np.array([eta[0], eta[1], psi])
+
+        # Reshape state
+        state = self.state.reshape(self.observation_space.shape[0]).astype(np.float32)
+
+        # finish and penalize if oob
+        if position[0] < self.min_x or position[0] > self.max_x:
+            done = True
+            reward = (1 - self.lambda_reward) * -100
+
+        if position[1] < self.min_y or position[1] > self.max_y:
+            done = True
+            if(position[1] < self.min_y):
+                reward = (1 - self.lambda_reward) * -100
+
+        return state, reward, done, {}
+
+    def reset(self):
+        x = 5
+        y = 5
+        psi = np.pi
+        eta = np.array([x, y])
+        upsilon = np.array([0., 0., 0.])
+        eta_dot_last = np.array([0., 0., 0.])
+        upsilon_dot_last = np.array([0., 0., 0.])
+        action0_last = 0.0
+        action1_last = 0.0
+        e_u_int = 0.
+        Ka_u = 0.
+        Ka_psi = 0.
+        e_u_last = 0.
+        Ka_dot_u_last = 0.
+        Ka_dot_psi_last = 0.
+        psi_d_last = psi
+        o_dot_dot_last = 0.
+        o_dot_last = 0.
+        o_last = 0.
+        o_dot_dot = 0.
+        o_dot = 0.
+        o = 0.
+        # Start and Final position
+        x_0 = np.random.uniform(low=-2.5, high=2.5)
+        y_0 = np.random.uniform(low=-5.0, high=5.0)
+        x_d = np.random.uniform(low=15, high=30)
+        y_d = y_0
+        # Desired speed
+        u_ref = np.random.uniform(low=self.min_u_ref, high=self.max_u_ref)
+        # number of obstacles 
+        self.num_obs = np.random.random_integers(low=2, high=20)
+        # array of positions in x and y and radius
+        self.posx = np.random.normal(15, 10, size=(self.num_obs, 1))
+        self.posy = np.random.uniform(low=-10, high=10, size=(self.num_obs, 1))
+        self.radius = np.random.uniform(low=0.1, high=1.5, size=(self.num_obs, 1))
+
+        distance = np.hypot(self.posx - eta[0],
+                            self.posy - eta[1]) - self.radius - self.boat_radius - (self.safety_radius + 1.0)
+        distance = distance.reshape(-1)
+
+        # Delete all obstacles within boat radius
+        elems_to_delete = np.flatnonzero(distance < 0)
+        self.posx = np.delete(self.posx, elems_to_delete).reshape(-1,1)
+        self.posy = np.delete(self.posy, elems_to_delete).reshape(-1,1)
+        self.radius = np.delete(self.radius, elems_to_delete).reshape(-1,1)
+        self.num_obs -= elems_to_delete.size
+
+        ak = np.math.atan2(y_d - y_0, x_d - x_0)
+        ak = np.float32(ak)
+
+        psi_ak = psi - ak
+        psi_ak = np.where(np.greater(np.abs(psi_ak), np.pi), np.sign(psi_ak) * (np.abs(psi_ak) - 2 * np.pi), psi_ak)
+        psi_ak = np.float32(psi_ak)
+
+        ye = -(x - x_0) * np.math.sin(ak) + (y - y_0) * np.math.cos(ak)
+        xe_dot, ye_dot = self.body_to_path(upsilon[0], upsilon[1], psi_ak)
+
+        self.state = np.hstack(
+            (upsilon[0], upsilon[1], upsilon[2], ye, ye_dot, psi_ak, u_ref, self.sectors, action0_last, action1_last))
+        self.aux_vars = np.array([e_u_int, Ka_u, Ka_psi])
+        self.last = np.array(
+            [eta_dot_last[0], eta_dot_last[1], eta_dot_last[2], upsilon_dot_last[0], upsilon_dot_last[1],
+             upsilon_dot_last[2], e_u_last, Ka_dot_u_last, Ka_dot_psi_last])
+        self.target = np.array([x_0, y_0, u_ref, ak, x_d, y_d])
+        self.so_filter = np.array([psi_d_last, o_dot_dot_last, o_dot_last, o_last, o, o_dot, o_dot_dot])
+
+        self.position = np.array([eta[0], eta[1], psi])
+
+        state, _, _, _ = self.step([0,0])
+        return state
+
+    def _compute_asmc(self, action):
+        x_dot_last, y_dot_last, psi_dot_last, u_dot_last, v_dot_last, r_dot_last, e_u_last, Ka_dot_u_last, Ka_dot_psi_last = self.last
+        psi_d_last, o_dot_dot_last, o_dot_last, o_last, o, o_dot, o_dot_dot = self.so_filter
+
+        state = self.state
+        u, v, r, ye, ye_dot, chi_ak, u_ref, sectors, action0_last, action1_last = state[0], state[1], state[2], state[
+            3], state[4], state[5], state[6], state[7:32], state[32], state[33]
+        x, y, psi = self.position
+        e_u_int, Ka_u, Ka_psi = self.aux_vars
+
+        # Create model related vectors
+        eta = np.array([x, y, psi])
+        upsilon = np.array([u, v, r])
+        eta_dot_last = np.array([x_dot_last, y_dot_last, psi_dot_last])
+        upsilon_dot_last = np.array([u_dot_last, v_dot_last, r_dot_last])
 
         for i in range(10):
             beta = np.math.asin(upsilon[1] / (0.001 + np.sqrt(upsilon[0] * upsilon[0] + upsilon[1] * upsilon[1])))
@@ -336,33 +485,24 @@ class UsvAsmcCaEnv(gym.Env):
             eta_dot_last = eta_dot
 
             psi = eta[2]
-            psi = np.where(np.greater(np.abs(psi), np.pi), (np.sign(psi)) * (np.abs(psi) - 2 * np.pi), psi)
+            eta[2] = np.where(np.greater(np.abs(psi), np.pi), (np.sign(psi)) * (np.abs(psi) - 2 * np.pi), psi)
 
-        beta = np.math.asin(upsilon[1] / (0.001 + np.sqrt(upsilon[0] * upsilon[0] + upsilon[1] * upsilon[1])))
-        chi = psi + beta
-        chi = np.where(np.greater(np.abs(chi), np.pi), (np.sign(chi)) * (np.abs(chi) - 2 * np.pi), chi)
-        # Compute angle between USV and path
-        chi_ak = chi - ak
-        chi_ak = np.where(np.greater(np.abs(chi_ak), np.pi), (np.sign(chi_ak)) * (np.abs(chi_ak) - 2 * np.pi), chi_ak)
-        psi_ak = psi - ak
-        psi_ak = np.where(np.greater(np.abs(psi_ak), np.pi), (np.sign(psi_ak)) * (np.abs(psi_ak) - 2 * np.pi), psi_ak)
 
-        # Compute cross-track error
-        ye = -(eta[0] - x_0) * np.math.sin(ak) + (eta[1] - y_0) * np.math.cos(ak)
-        ye_abs = np.abs(ye)
+        self.last = np.array(
+            [eta_dot_last[0], eta_dot_last[1], eta_dot_last[2], upsilon_dot_last[0], upsilon_dot_last[1],
+             upsilon_dot_last[2], e_u_last, Ka_dot_u_last, Ka_dot_psi_last])
 
-        # Compute collision
-        done = False
+        self.so_filter = np.array([psi_d_last, o_dot_dot_last, o_dot_last, o_last, o, o_dot, o_dot_dot])
+        self.aux_vars = np.array([e_u_int, Ka_u, Ka_psi])
 
-        distance = np.hypot(self.posx - eta[0], self.posy - eta[1]) - self.radius - self.boat_radius - self.safety_radius
-        distance = distance.reshape(-1)
-        if distance.size == 0:
-            collision = False
-        else:
-            collision = np.min(distance) < 0
-            done = collision
+        return eta, upsilon
 
-        # Compute sensor readings
+
+    def _compute_sensor_measurments(self, distance):
+        x = self.position[0]
+        y = self.position[1]
+        psi = self.position[2]
+
         obs_order = np.argsort(distance)  # order obstacles in closest to furthest
 
         sensor_len = len(self.sensors)
@@ -378,12 +518,12 @@ class UsvAsmcCaEnv(gym.Env):
             idx = obs_order[i]
             obstacle_positions[i] = np.array([self.posx[idx][0], self.posy[idx][0]])
 
-        boat_position = np.array([eta[0], eta[1]])
+        boat_position = np.array([x,y])
         ned_obstacle_positions = self.compute_obstacle_positions(sensor_angles, obstacle_positions,
                                                                  boat_position)
 
         for i in range(sensor_len):
-            if(self.sensors[i][1] != self.sensor_max_range):
+            if (self.sensors[i][1] != self.sensor_max_range):
                 continue
             for j in range(self.num_obs):
                 (obs_x, obs_y) = ned_obstacle_positions[i][j]
@@ -391,7 +531,7 @@ class UsvAsmcCaEnv(gym.Env):
 
                 if (obs_x < 0):
                     # Obstacle is behind sensor
-                    #self.sensors[i][1] = self.sensor_max_range
+                    # self.sensors[i][1] = self.sensor_max_range
                     continue
 
                 delta = (self.radius[obs_idx] * self.radius[obs_idx]) - (obs_y * obs_y)
@@ -402,189 +542,7 @@ class UsvAsmcCaEnv(gym.Env):
                 if new_distance < self.sensor_max_range:
                     self.sensors[i][1] = min(self.sensors[i][1], new_distance)
 
-        # Feasability pooling: compute sectors
-        # sectors = self.max_sectors
-        sectors = np.full((self.sector_num), self.sensor_max_range)
-        for i in range(self.sector_num):  # loop through sectors
-            x = self.sensors[i * self.sector_size:(i + 1) * self.sector_size, 1]
-            if np.all(x == self.sensor_max_range):
-                continue
-            x_ordered = np.argsort(x)
-            for j in range(self.sector_size):  # loop through
-                x_index = x_ordered[j]
-                arc_length = self.lidar_resolution * x[x_index]
-                opening_width = arc_length / 2
-                opening_found = False
-                for k in range(self.sector_size):
-                    if x[k] > x[x_index]:
-                        opening_width = opening_width + arc_length
-                        if opening_width > (self.boat_radius + self.safety_radius):
-                            opening_found = True
-                            break
-                    else:
-                        opening_width = opening_width + arc_length / 2
-                        if opening_width > (self.boat_radius + self.safety_radius):
-                            opening_found = True
-                            break
-                        opening_width = 0
-                if opening_found == False:
-                    sectors[i] = x[x_index]
-        self.sectors = sectors
-        sectors = (1 - sectors / self.sensor_max_range)
-
-        # Compute reward
-        reward = self.compute_reward(ye_abs, chi_ak, action_dot0, action_dot1, collision, u_ref, u, v)
-
-        # Compute velocities relative to path (for ye derivative as ye_dot = v_ak)
-        xe_dot, ye_dot = self.body_to_path(upsilon[0], upsilon[1], psi_ak)
-
-        # If USV collides, abort
-        # if collision == True:
-        #
-        # else:
-        #     done = False
-
-        #Clamp ye and finish ep
-        if abs(ye) > self.max_ye:
-            ye = np.copysign(self.max_ye, ye)
-            done = True
-
-        # Fill overall vector variables
-        self.state = np.hstack(
-            (upsilon[0], upsilon[1], upsilon[2], ye, ye_dot, chi_ak, u_ref, sectors, action0_last, action1_last))
-        self.position = np.array([eta[0], eta[1], psi])
-        self.aux_vars = np.array([e_u_int, Ka_u, Ka_psi])
-        self.last = np.array(
-            [eta_dot_last[0], eta_dot_last[1], eta_dot_last[2], upsilon_dot_last[0], upsilon_dot_last[1],
-             upsilon_dot_last[2], e_u_last, Ka_dot_u_last, Ka_dot_psi_last])
-        self.so_filter = np.array([psi_d_last, o_dot_dot_last, o_dot_last, o_last, o, o_dot, o_dot_dot])
-
-        # Reshape state
-        state = self.state.reshape(self.observation_space.shape[0]).astype(np.float32)
-
-        # finish and penalize if oob
-        if position[0] < self.min_x or position[0] > self.max_x:
-            done = True
-            reward = (1 - self.lambda_reward) * -100
-
-        if position[1] < self.min_y or position[1] > self.max_y:
-            done = True
-            if(position[1] < self.min_y):
-                reward = (1 - self.lambda_reward) * -100
-
-        return state, reward, done, {}
-
-    def reset(self):
-        x = 5
-        y = 5
-        psi = np.pi
-        eta = np.array([x, y])
-        upsilon = np.array([0., 0., 0.])
-        eta_dot_last = np.array([0., 0., 0.])
-        upsilon_dot_last = np.array([0., 0., 0.])
-        action0_last = 0.0
-        action1_last = 0.0
-        e_u_int = 0.
-        Ka_u = 0.
-        Ka_psi = 0.
-        e_u_last = 0.
-        Ka_dot_u_last = 0.
-        Ka_dot_psi_last = 0.
-        psi_d_last = psi
-        o_dot_dot_last = 0.
-        o_dot_last = 0.
-        o_last = 0.
-        o_dot_dot = 0.
-        o_dot = 0.
-        o = 0.
-        # Start and Final position
-        x_0 = np.random.uniform(low=-2.5, high=2.5)
-        y_0 = np.random.uniform(low=-5.0, high=5.0)
-        x_d = np.random.uniform(low=15, high=30)
-        y_d = y_0
-        # Desired speed
-        u_ref = np.random.uniform(low=self.min_u_ref, high=self.max_u_ref)
-        # number of obstacles 
-        self.num_obs = np.random.random_integers(low=2, high=20)
-        # array of positions in x and y and radius
-        self.posx = np.random.normal(15, 10, size=(self.num_obs, 1))
-        self.posy = np.random.uniform(low=-10, high=10, size=(self.num_obs, 1))
-        self.radius = np.random.uniform(low=0.1, high=1.5, size=(self.num_obs, 1))
-
-        distance = np.hypot(self.posx - eta[0],
-                            self.posy - eta[1]) - self.radius - self.boat_radius - (self.safety_radius + 1.0)
-        distance = distance.reshape(-1)
-
-        # Delete all obstacles within boat radius
-        elems_to_delete = np.flatnonzero(distance < 0)
-        self.posx = np.delete(self.posx, elems_to_delete).reshape(-1,1)
-        self.posy = np.delete(self.posy, elems_to_delete).reshape(-1,1)
-        self.radius = np.delete(self.radius, elems_to_delete).reshape(-1,1)
-        self.num_obs -= elems_to_delete.size
-
-        ak = np.math.atan2(y_d - y_0, x_d - x_0)
-        ak = np.float32(ak)
-
-        psi_ak = psi - ak
-        psi_ak = np.where(np.greater(np.abs(psi_ak), np.pi), np.sign(psi_ak) * (np.abs(psi_ak) - 2 * np.pi), psi_ak)
-        psi_ak = np.float32(psi_ak)
-        ye = -(x - x_0) * np.math.sin(ak) + (y - y_0) * np.math.cos(ak)
-
-        xe_dot, ye_dot = self.body_to_path(upsilon[0], upsilon[1], psi_ak)
-
-        collision = False
-        # Compute collision
-        distance = np.empty([self.num_obs])
-        for i in range(self.num_obs):
-            distance[i] = np.sqrt(np.power((self.posx[i] - eta[0]), 2) + np.power((self.posy[i] - eta[1]), 2))
-            distance[i] = distance[i] - self.radius[i] - self.boat_radius - self.safety_radius
-            if distance[i] < self.safety_distance:
-                collision = True
-
-        # Compute sensor readings
-        obs_order = np.argsort(distance)  # order obstacles in closest to furthest
-
-        sensor_len = len(self.sensors)
-        self.sensors = np.vstack((-np.pi * 2 / 3 + np.arange(sensor_len) * self.lidar_resolution,
-                                  np.ones(sensor_len) * self.sensor_max_range)).T
-        sensor_angles = psi + self.sensors[:, 0]
-        sensor_angles = np.where(np.greater(np.abs(sensor_angles), np.pi),
-                                 np.sign(sensor_angles) * (np.abs(sensor_angles) - 2 * np.pi), sensor_angles)
-
-        obstacle_positions = np.zeros((self.num_obs, 2))
-        for i in range(self.num_obs):
-            idx = obs_order[i]
-            obstacle_positions[i] = np.array([self.posx[idx][0], self.posy[idx][0]])
-
-        boat_position = np.array([eta[0], eta[1]])
-        ned_obstacle_positions = self.compute_obstacle_positions(sensor_angles, obstacle_positions, boat_position)
-
-        for i in range(sensor_len):
-            for j in range(self.num_obs):
-                (obs_x, obs_y) = ned_obstacle_positions[i][j]
-                if (obs_x < 0):
-                    # Obstacle is behind sensor
-                    self.sensors[i][1] = self.sensor_max_range
-                    continue
-
-                delta = (self.radius[j] * self.radius[j]) - (obs_y * obs_y)
-                if delta < 0:
-                    continue
-
-                # Intersection
-                y1 = 0
-                y2 = 0
-                x1 = obs_x + np.sqrt(delta)
-                x2 = obs_x - np.sqrt(delta)
-                distance1 = np.sqrt(x1 * x1 + y1 * y1)
-                distance2 = np.sqrt(x2 * x2 + y2 * y2)
-                if distance1 > distance2:
-                    self.sensors[i][1] = distance2
-                else:
-                    self.sensors[i][1] = distance1
-
-        # Feasability pooling: compute sectors
-        # sectors = self.max_sectors
+    def _compute_feasability_pooling(self):
         sectors = np.full((self.sector_num), self.sensor_max_range)
         for i in range(self.sector_num):  # loop through sectors
             x = self.sensors[i * self.sector_size:(i + 1) * self.sector_size, 1]
@@ -606,25 +564,9 @@ class UsvAsmcCaEnv(gym.Env):
                             opening_found = True
                             break
                         opening_width = 0
-                if opening_found == False:
+                if not opening_found:
                     sectors[i] = x[x_index]
-
-        self.sectors = sectors
-        sectors = (1 - sectors / self.sensor_max_range)
-
-        self.state = np.hstack(
-            (upsilon[0], upsilon[1], upsilon[2], ye, ye_dot, psi_ak, u_ref, sectors, action0_last, action1_last))
-        self.position = np.array([eta[0], eta[1], psi])
-        self.aux_vars = np.array([e_u_int, Ka_u, Ka_psi])
-        self.last = np.array(
-            [eta_dot_last[0], eta_dot_last[1], eta_dot_last[2], upsilon_dot_last[0], upsilon_dot_last[1],
-             upsilon_dot_last[2], e_u_last, Ka_dot_u_last, Ka_dot_psi_last])
-        self.target = np.array([x_0, y_0, u_ref, ak, x_d, y_d])
-        self.so_filter = np.array([psi_d_last, o_dot_dot_last, o_dot_last, o_last, o, o_dot, o_dot_dot])
-
-        state = self.state.reshape(self.observation_space.shape[0]).astype(np.float32)
-
-        return state
+        return sectors
 
     def _transform_points(self, points, x, y, angle):
         if angle is not None:
