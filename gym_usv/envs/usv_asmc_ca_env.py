@@ -689,6 +689,7 @@ class UsvAsmcCaEnv(gym.Env):
             self.clock.tick(self.metadata["render_fps"])
             pygame.display.flip()
         if mode == "rgb_array":
+            return self._create_image_array(self.surf, (screen_width, screen_height))
             return np.transpose(
                 np.array(pygame.surfarray.pixels3d(self.screen)), axes=(1, 0, 2)
             )
