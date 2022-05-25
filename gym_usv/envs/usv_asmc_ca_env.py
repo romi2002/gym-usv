@@ -650,7 +650,7 @@ class UsvAsmcCaEnv(gym.Env):
         psi = self.position[2]
 
         import pygame
-        if self.screen is None:
+        if self.screen is None and mode == "human":
             pygame.init()
             pygame.display.init()
             self.screen = pygame.display.set_mode((screen_width, screen_height))
