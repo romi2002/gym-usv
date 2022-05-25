@@ -256,7 +256,8 @@ class UsvAsmcCaEnv(gym.Env):
             if(position[1] < self.min_y):
                 reward = (1 - self.lambda_reward) * -100
 
-        return state, reward, done, {"position": position, "sensors": self.sensors, "sectors": sectors}
+        info = {"position": position, "sensors": self.sensors, "sectors": sectors}
+        return state, reward, done, info
 
     def reset(self):
         x = np.random.uniform(low=-2.5, high=2.5)
