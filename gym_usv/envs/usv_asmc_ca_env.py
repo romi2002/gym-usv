@@ -576,7 +576,7 @@ class UsvAsmcCaEnv(gym.Env):
         points = [(px + x, py + y) for (px, py) in points]
         return points
 
-    def _draw_sectors(self, scale, position, sensors):
+    def _draw_sectors(self, scale, position, sensors, sectors):
         import pygame
         x = position[0]
         y = position[1]
@@ -594,7 +594,7 @@ class UsvAsmcCaEnv(gym.Env):
 
             color = (0, 255, 0)
 
-            if self.sectors[section] < self.sensor_max_range:
+            if sectors[section] < self.sensor_max_range:
                 color = (255, 0, 0)
                 if(i % 10 == 0):
                     color = (255,0,255)
@@ -650,9 +650,11 @@ class UsvAsmcCaEnv(gym.Env):
         if info is not None:
             position = info['position']
             sensors = info['sensors']
+            sectors = info['sectors']
         else:
             position = self.position
             sensors = self.sensors
+	    sectors = self.sectors
 
         x = position[0]
         y = position[1]
@@ -669,7 +671,7 @@ class UsvAsmcCaEnv(gym.Env):
         self.surf = pygame.Surface((screen_width, screen_height))
         self.surf.fill((255, 255, 255))
 
-        self._draw_sectors(scale, position, sensors)
+        self._draw_sectors(scale, position, sensors, sectors)
 
         if(draw_obstacles):
             self._draw_obstacles(scale)
