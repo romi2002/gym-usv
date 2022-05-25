@@ -217,7 +217,7 @@ class UsvAsmcCaEnv(gym.Env):
         self._compute_sensor_measurments(distance)
 
         # Feasability pooling: compute sectors
-        sectors = self._compute_feasability_pooling()
+        sectors = self._compute_feasability_pooling(self.sensors)
         self.sectors = sectors
         sectors = (1 - sectors / self.sensor_max_range)
 
@@ -543,10 +543,10 @@ class UsvAsmcCaEnv(gym.Env):
                 if new_distance < self.sensor_max_range:
                     self.sensors[i][1] = min(self.sensors[i][1], new_distance)
 
-    def _compute_feasability_pooling(self):
+    def _compute_feasability_pooling(self, sensors):
         sectors = np.full((self.sector_num), self.sensor_max_range)
         for i in range(self.sector_num):  # loop through sectors
-            x = self.sensors[i * self.sector_size:(i + 1) * self.sector_size, 1]
+            x = sensors[i * self.sector_size:(i + 1) * self.sector_size, 1]
             x_ordered = np.argsort(x)
             for j in range(self.sector_size):  # loop through
                 x_index = x_ordered[j]
@@ -583,12 +583,12 @@ class UsvAsmcCaEnv(gym.Env):
         psi = position[2]
 
         for i in range(len(self.sensors)):
-            angle = self.sensors[i][0] + psi
+            angle = sensors[i][0] + psi
             angle = np.where(np.greater(np.abs(angle), np.pi), np.sign(angle) * (np.abs(angle) - 2 * np.pi), angle)
             initial = ((y - self.min_y) * scale, (x - self.min_x) * scale)
             m = np.math.tan(angle)
-            x_f = self.sensors[i][1] * np.math.cos(angle) + x - self.min_x
-            y_f = self.sensors[i][1] * np.math.sin(angle) + y - self.min_y
+            x_f = sensors[i][1] * np.math.cos(angle) + x - self.min_x
+            y_f = sensors[i][1] * np.math.sin(angle) + y - self.min_y
             final = (y_f * scale, x_f * scale)
             section = np.int(np.floor(i / self.sector_size))
 
