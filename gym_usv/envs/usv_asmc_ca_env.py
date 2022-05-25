@@ -545,7 +545,6 @@ class UsvAsmcCaEnv(gym.Env):
 
     def _compute_feasability_pooling(self, sensors):
         sectors = np.full((self.sector_num), self.sensor_max_range)
-        print(self.sector_num)
         for i in range(self.sector_num):  # loop through sectors
             x = sensors[i * self.sector_size:(i + 1) * self.sector_size, 1]
             x_ordered = np.argsort(x)
@@ -591,8 +590,6 @@ class UsvAsmcCaEnv(gym.Env):
             x_f = sensors[i][1] * np.math.cos(angle) + x - self.min_x
             y_f = sensors[i][1] * np.math.sin(angle) + y - self.min_y
             final = (y_f * scale, x_f * scale)
-            print(i)
-            print(self.sector_size)
             section = np.int(np.floor(i / self.sector_size))
 
             color = (0, 255, 0)
