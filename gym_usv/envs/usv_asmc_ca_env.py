@@ -682,9 +682,9 @@ class UsvAsmcCaEnv(gym.Env):
         pygame.draw.circle(self.surf, (255,0,0), safety, safety_radius, width=3)
 
         self.surf = pygame.transform.flip(self.surf, False, True)
-        self.screen.blit(self.surf, (0,0))
 
         if mode == "human":
+            self.screen.blit(self.surf, (0,0))
             pygame.event.pump()
             self.clock.tick(self.metadata["render_fps"])
             pygame.display.flip()
