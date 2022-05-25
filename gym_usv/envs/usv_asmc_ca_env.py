@@ -74,7 +74,7 @@ class UsvAsmcCaEnv(gym.Env):
         self.radius = None  # array
 
         # Sensor vector column 0 = senor angle column 1 = distance mesured
-        self.sensor_num = np.int(225)
+        self.sensor_num = np.int(897)
         self.sensors = np.zeros((self.sensor_num, 2))
         self.sensor_span = (2 / 3) * (2 * np.pi)
         self.lidar_resolution = self.sensor_span / self.sensor_num  # angle resolution in radians
