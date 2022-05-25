@@ -654,7 +654,7 @@ class UsvAsmcCaEnv(gym.Env):
         else:
             position = self.position
             sensors = self.sensors
-	    sectors = self.sectors
+            sectors = self.sectors
 
         x = position[0]
         y = position[1]
