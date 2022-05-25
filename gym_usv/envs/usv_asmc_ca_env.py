@@ -256,7 +256,7 @@ class UsvAsmcCaEnv(gym.Env):
             if(position[1] < self.min_y):
                 reward = (1 - self.lambda_reward) * -100
 
-        return state, reward, done, {}
+        return state, reward, done, {"position": position, "sensors": self.sensors, "sectors": sectors}
 
     def reset(self):
         x = np.random.uniform(low=-2.5, high=2.5)
@@ -575,11 +575,11 @@ class UsvAsmcCaEnv(gym.Env):
         points = [(px + x, py + y) for (px, py) in points]
         return points
 
-    def _draw_sectors(self, scale):
+    def _draw_sectors(self, scale, position, sensors):
         import pygame
-        x = self.position[0]
-        y = self.position[1]
-        psi = self.position[2]
+        x = position[0]
+        y = position[1]
+        psi = position[2]
 
         for i in range(len(self.sensors)):
             angle = self.sensors[i][0] + psi
@@ -602,7 +602,7 @@ class UsvAsmcCaEnv(gym.Env):
 
             pygame.draw.line(self.surf, color, initial, final)
 
-    def _draw_boat(self, scale):
+    def _draw_boat(self, scale, position):
         import pygame
         boat_width = 15
         boat_height = 20
@@ -610,7 +610,7 @@ class UsvAsmcCaEnv(gym.Env):
         l, r, t, b, c, m = -boat_width / 2, boat_width / 2, boat_height, 0, 0, boat_height / 2
         boat_points = [(l, b), (l, m), (c, t), (r, m), (r, b)]
         boat_points = [(x,y - boat_height / 2) for (x,y) in boat_points]
-        boat_points = self._transform_points(boat_points, (self.position[1] - self.min_y) * scale, (self.position[0] - self.min_x) * scale, -self.position[2])
+        boat_points = self._transform_points(boat_points, (position[1] - self.min_y) * scale, (position[0] - self.min_x) * scale, -position[2])
 
         pygame.draw.polygon(self.surf, (3,94,252), boat_points)
 
@@ -639,15 +639,23 @@ class UsvAsmcCaEnv(gym.Env):
             angle = angle + self.sensor_span / self.sector_num
             angle = np.where(np.greater(np.abs(angle), np.pi), np.sign(angle) * (np.abs(angle) - 2 * np.pi), angle)
 
-    def render(self, mode='human'):
+    def render(self, mode='human', info=None, draw_obstacles=True):
         screen_width = 400
         screen_height = 800
 
         world_width = self.max_y - self.min_y
         scale = screen_width / world_width
-        x = self.position[0]
-        y = self.position[1]
-        psi = self.position[2]
+
+        if info is not None:
+            position = info['position']
+            sensors = info['sensors']
+        else:
+            position = self.position
+            sensors = self.sensors
+
+        x = position[0]
+        y = position[1]
+        psi = position[2]
 
         import pygame
         if self.screen is None and mode == "human":
@@ -660,9 +668,12 @@ class UsvAsmcCaEnv(gym.Env):
         self.surf = pygame.Surface((screen_width, screen_height))
         self.surf.fill((255, 255, 255))
 
-        self._draw_sectors(scale)
-        self._draw_obstacles(scale)
-        self._draw_boat(scale)
+        self._draw_sectors(scale, position, sensors)
+
+        if(draw_obstacles):
+            self._draw_obstacles(scale)
+
+        self._draw_boat(scale, position)
 
         clearance = -10
 
