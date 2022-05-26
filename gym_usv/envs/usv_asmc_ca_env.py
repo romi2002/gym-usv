@@ -177,7 +177,7 @@ class UsvAsmcCaEnv(gym.Env):
             3], state[4], state[5], state[6], state[7:7+self.sector_num - 1], state[7 + self.sector_num], state[7 + self.sector_num + 1]
         x, y, psi = position
 
-        eta, upsilon, psi = self._compute_asmc(action)
+        eta, upsilon, psi, tport, tstbd = self._compute_asmc(action)
 
         # Calculate action derivative for reward
         action_dot0 = (action[0] - action0_last) / self.integral_step
@@ -256,7 +256,7 @@ class UsvAsmcCaEnv(gym.Env):
             if(position[1] < self.min_y):
                 reward = (1 - self.lambda_reward) * -100
 
-        info = {"position": position, "sensors": self.sensors, "sectors": sectors}
+        info = {"position": position, "sensors": self.sensors, "sectors": sectors, "thrusters": (tport, tstbd)}
         return state, reward, done, info
 
     def reset(self):
@@ -496,7 +496,7 @@ class UsvAsmcCaEnv(gym.Env):
         self.so_filter = np.array([psi_d_last, o_dot_dot_last, o_dot_last, o_last, o, o_dot, o_dot_dot])
         self.aux_vars = np.array([e_u_int, Ka_u, Ka_psi])
 
-        return eta, upsilon, psi
+        return eta, upsilon, psi, Tport, Tstbd
 
 
     def _compute_sensor_measurments(self, distance):
