@@ -157,8 +157,10 @@ class UsvAsmcCaEnv(gym.Env):
         self.clock = None
         self.isopen = True
 
-    def _denormalize_val(self, x, min_x, max_x):
-        return (x + 1.0) * (max_x - min_x) / (2.0) + min_x
+    def _denormalize_val(self, x, out_min, out_max):
+        in_min = -1
+        in_max = 1
+        return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
 
     def _denormalize_state(self, state):
         u, v, r, ye, ye_dot, chi_ak, u_ref, sectors, action0_last, action1_last = state[0], state[1], state[2], state[
@@ -539,11 +541,7 @@ class UsvAsmcCaEnv(gym.Env):
         #sensor_angles = np.where(np.greater(np.abs(sensor_angles), np.pi),
         #                         np.sign(sensor_angles) * (np.abs(sensor_angles) - 2 * np.pi), sensor_angles)
 
-        obstacle_positions = np.zeros((self.num_obs, 2))
-        ## TODO Optimize this func
-        for i in range(self.num_obs):
-            idx = obs_order[i]
-            obstacle_positions[i] = np.array([self.posx[idx][0], self.posy[idx][0]])
+        obstacle_positions = np.hstack((self.posx[:], self.posy[:]))[obs_order]
 
         boat_position = np.array([x,y])
         ned_obstacle_positions = self.compute_obstacle_positions(sensor_angles, obstacle_positions,
@@ -825,20 +823,12 @@ class UsvAsmcCaEnv(gym.Env):
                       [np.math.sin(angle), np.math.cos(angle)]])
         return (J)
 
-    @lru_cache(maxsize=1000)
-    def compute_rot_matrix(self, psi):
-        J = self.rotation_matrix(psi)
-        return np.linalg.inv(J)
-
     def compute_obstacle_positions(self, sensor_angles, obstacle_pos, boat_pos):
         sensor_angle_len = len(sensor_angles)
-        obstacle_len = len(obstacle_pos)
 
-        rm = np.zeros((sensor_angle_len, 2, 2))
-
-        # TODO Optimize this
-        for i in range(sensor_angle_len):
-            rm[i] = self.compute_rot_matrix(sensor_angles[i])
+        # Generate rotation matrix
+        c, s = np.cos(sensor_angles), np.sin(sensor_angles)
+        rm = np.linalg.inv(np.array([c, -s, s, c]).T.reshape(len(sensor_angles), 2, 2))
 
         n = obstacle_pos - boat_pos
 
