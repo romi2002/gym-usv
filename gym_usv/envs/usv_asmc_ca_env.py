@@ -141,13 +141,11 @@ class UsvAsmcCaEnv(gym.Env):
         self.sectors = np.zeros((self.sector_num))
 
         # Min and max state vectors
-        self.low_state = np.hstack((self.min_u, self.min_v, self.min_r, self.min_ye, self.min_ye_dot, self.min_chi_ak,
-                                    self.min_u_ref, self.min_sectors, self.min_action0, self.min_action1))
-        self.high_state = np.hstack((self.max_u, self.max_v, self.max_r, self.max_ye, self.max_ye_dot, self.max_chi_ak,
-                                     self.max_u_ref, self.max_sectors, self.max_action0, self.max_action1))
+        self.low_state = np.full(34, -1.0)
+        self.high_state = np.full(34, 1.0)
 
-        self.min_action = np.array([self.min_action0, self.min_action1])
-        self.max_action = np.array([self.max_action0, self.max_action1])
+        self.min_action = np.array([-1.0, -1.0])
+        self.max_action = np.array([1.0, 1.0])
 
         self.action_space = spaces.Box(low=self.min_action, high=self.max_action,
                                        dtype=np.float32)
@@ -159,6 +157,30 @@ class UsvAsmcCaEnv(gym.Env):
         self.clock = None
         self.isopen = True
 
+    def _denormalize_val(self, x, min_x, max_x):
+        return (x + 1.0) * (max_x - min_x) / (2.0) + min_x
+
+    def _denormalize_state(self, state):
+        u, v, r, ye, ye_dot, chi_ak, u_ref, sectors, action0_last, action1_last = state[0], state[1], state[2], state[
+            3], state[4], state[5], state[6], state[7:7 + self.sector_num], state[7 + self.sector_num], state[
+                                                                                      7 + self.sector_num + 1]
+
+        u = self._denormalize_val(u, self.min_u, self.max_u)
+        v = self._denormalize_val(v, self.min_v, self.max_v)
+        r = self._denormalize_val(r, self.min_r, self.max_r)
+        ye = self._denormalize_val(ye, self.min_ye, self.max_ye)
+        ye_dot = self._denormalize_val(ye_dot, self.min_ye_dot, self.max_ye_dot)
+        chi_ak = self._denormalize_val(chi_ak, self.min_chi_ak, self.max_chi_ak)
+
+        # sectors are ignored
+        action0_last = self._denormalize_val(action0_last, self.min_action0, self.max_action0)
+        action1_last = self._denormalize_val(action1_last, self.min_action0, self.max_action1)
+
+        state = np.hstack(
+            (u, v, r, ye, ye_dot, chi_ak, u_ref, sectors, action0_last, action1_last))
+
+        return state
+
     def step(self, action):
         '''
         @name: step
@@ -169,13 +191,16 @@ class UsvAsmcCaEnv(gym.Env):
                  done: if finished
         '''
         # Read overall vector variables
-        state = self.state
+        state = self._denormalize_state(self.state)
         position = self.position
 
         # Change from vectors to scalars
         u, v, r, ye, ye_dot, chi_ak, u_ref, sectors, action0_last, action1_last = state[0], state[1], state[2], state[
             3], state[4], state[5], state[6], state[7:7+self.sector_num - 1], state[7 + self.sector_num], state[7 + self.sector_num + 1]
         x, y, psi = position
+
+        action[0] = self._denormalize_val(action[0], self.min_action0, self.max_action0)
+        action[1] = self._denormalize_val(action[1], self.min_action1, self.max_action1)
 
         eta, upsilon, psi, tport, tstbd = self._compute_asmc(action)
 
@@ -524,13 +549,13 @@ class UsvAsmcCaEnv(gym.Env):
                                                                  boat_position)
 
         for i in range(sensor_len):
-            if (self.sensors[i][1] != self.sensor_max_range):
+            if self.sensors[i][1] != self.sensor_max_range:
                 continue
             for j in range(self.num_obs):
                 (obs_x, obs_y) = ned_obstacle_positions[i][j]
                 obs_idx = obs_order[j]
 
-                if (obs_x < 0):
+                if obs_x < 0:
                     # Obstacle is behind sensor
                     # self.sensors[i][1] = self.sensor_max_range
                     continue
@@ -619,7 +644,7 @@ class UsvAsmcCaEnv(gym.Env):
         import pygame
         for i in range(self.num_obs):
             obs_points = [(self.posy[i][0] * scale, self.posx[i][0] * scale)]
-            obs_points = self._transform_points(obs_points,  -self.min_y * scale, -self.min_x * scale, None)
+            obs_points = self._transform_points(obs_points, -self.min_y * scale, -self.min_x * scale, None)
             pygame.draw.circle(self.surf, (0,0,255), obs_points[0], self.radius[i][0] * scale)
 
     def _draw_highlighted_sectors(self, scale):
@@ -832,9 +857,11 @@ class UsvAsmcCaEnv(gym.Env):
 
         obs_pos = np.zeros((sensor_angle_len, obstacle_len, 2))
 
-        for i in range(sensor_angle_len):
-            for j in range(obstacle_len):
-                obs_pos[i][j] = (rm[i].dot(n[j]))
+        # for i in range(sensor_angle_len):
+        #     for j in range(obstacle_len):
+        #         obs_pos[i][j] = (rm[i].dot(n[j]))
+
+        obs_pos = np.inner(rm,n).transpose(0,2,1)
 
         obs_pos[:, :, 1] *= -1  # y *= -1
         return obs_pos
