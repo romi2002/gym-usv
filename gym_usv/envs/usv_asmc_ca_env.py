@@ -203,6 +203,7 @@ class UsvAsmcCaEnv(gym.Env):
         action[1] = self._denormalize_val(action[1], self.min_action1, self.max_action1)
 
         eta, upsilon, psi, tport, tstbd = self._compute_asmc(action)
+        self.position = np.array([eta[0], eta[1], psi])
 
         # Calculate action derivative for reward
         action_dot0 = (action[0] - action0_last) / self.integral_step
@@ -266,7 +267,6 @@ class UsvAsmcCaEnv(gym.Env):
         # Fill overall vector variables
         self.state = np.hstack(
             (upsilon[0], upsilon[1], upsilon[2], ye, ye_dot, chi_ak, u_ref, sectors, action0_last, action1_last))
-        self.position = np.array([eta[0], eta[1], psi])
 
         # Reshape state
         state = self.state.reshape(self.observation_space.shape[0]).astype(np.float32)
@@ -511,7 +511,7 @@ class UsvAsmcCaEnv(gym.Env):
             eta_dot_last = eta_dot
 
             psi = eta[2]
-            psi = np.where(np.greater(np.abs(psi), np.pi), (np.sign(psi)) * (np.abs(psi) - 2 * np.pi), psi)
+            #psi = np.where(np.greater(np.abs(psi), np.pi), (np.sign(psi)) * (np.abs(psi) - 2 * np.pi), psi)
 
 
         self.last = np.array(
@@ -535,11 +535,12 @@ class UsvAsmcCaEnv(gym.Env):
         self.sensors = np.vstack((-np.pi * 2 / 3 + np.arange(sensor_len) * self.lidar_resolution,
                                   np.ones(sensor_len) * self.sensor_max_range)).T
 
-        sensor_angles = psi + self.sensors[:, 0]
+        sensor_angles = self.sensors[:, 0] + psi
         #sensor_angles = np.where(np.greater(np.abs(sensor_angles), np.pi),
         #                         np.sign(sensor_angles) * (np.abs(sensor_angles) - 2 * np.pi), sensor_angles)
 
         obstacle_positions = np.zeros((self.num_obs, 2))
+        ## TODO Optimize this func
         for i in range(self.num_obs):
             idx = obs_order[i]
             obstacle_positions[i] = np.array([self.posx[idx][0], self.posy[idx][0]])
@@ -835,6 +836,7 @@ class UsvAsmcCaEnv(gym.Env):
 
         rm = np.zeros((sensor_angle_len, 2, 2))
 
+        # TODO Optimize this
         for i in range(sensor_angle_len):
             rm[i] = self.compute_rot_matrix(sensor_angles[i])
 
