@@ -536,8 +536,8 @@ class UsvAsmcCaEnv(gym.Env):
                                   np.ones(sensor_len) * self.sensor_max_range)).T
 
         sensor_angles = psi + self.sensors[:, 0]
-        sensor_angles = np.where(np.greater(np.abs(sensor_angles), np.pi),
-                                 np.sign(sensor_angles) * (np.abs(sensor_angles) - 2 * np.pi), sensor_angles)
+        #sensor_angles = np.where(np.greater(np.abs(sensor_angles), np.pi),
+        #                         np.sign(sensor_angles) * (np.abs(sensor_angles) - 2 * np.pi), sensor_angles)
 
         obstacle_positions = np.zeros((self.num_obs, 2))
         for i in range(self.num_obs):
@@ -609,7 +609,7 @@ class UsvAsmcCaEnv(gym.Env):
 
         for i in range(len(self.sensors)):
             angle = sensors[i][0] + psi
-            angle = np.where(np.greater(np.abs(angle), np.pi), np.sign(angle) * (np.abs(angle) - 2 * np.pi), angle)
+            #angle = np.where(np.greater(np.abs(angle), np.pi), np.sign(angle) * (np.abs(angle) - 2 * np.pi), angle)
             initial = ((y - self.min_y) * scale, (x - self.min_x) * scale)
             m = np.math.tan(angle)
             x_f = sensors[i][1] * np.math.cos(angle) + x - self.min_x
@@ -643,8 +643,7 @@ class UsvAsmcCaEnv(gym.Env):
     def _draw_obstacles(self, scale):
         import pygame
         for i in range(self.num_obs):
-            obs_points = [(self.posy[i][0] * scale, self.posx[i][0] * scale)]
-            obs_points = self._transform_points(obs_points, -self.min_y * scale, -self.min_x * scale, None)
+            obs_points = [((self.posy[i][0] - self.min_y) * scale, (self.posx[i][0] - self.min_x) * scale)]
             pygame.draw.circle(self.surf, (0,0,255), obs_points[0], self.radius[i][0] * scale)
 
     def _draw_highlighted_sectors(self, scale):
@@ -825,24 +824,10 @@ class UsvAsmcCaEnv(gym.Env):
                       [np.math.sin(angle), np.math.cos(angle)]])
         return (J)
 
-    @lru_cache(maxsize=100000)
+    @lru_cache(maxsize=1000)
     def compute_rot_matrix(self, psi):
         J = self.rotation_matrix(psi)
         return np.linalg.inv(J)
-
-    def multiDots(self, a, b):
-        assert a.shape == b.shape
-        n, m = a.shape
-        res = np.empty(n, dtype=np.float64)
-
-        # Use `nb.prange` instead of `range` to run the loop in parallel
-        for i in range(n):
-            s = 0.0
-            for j in range(m):
-                s += a[i, j] * b[i, j]
-            res[i] = s
-
-        return res
 
     def compute_obstacle_positions(self, sensor_angles, obstacle_pos, boat_pos):
         sensor_angle_len = len(sensor_angles)
@@ -855,7 +840,7 @@ class UsvAsmcCaEnv(gym.Env):
 
         n = obstacle_pos - boat_pos
 
-        obs_pos = np.zeros((sensor_angle_len, obstacle_len, 2))
+        # obs_pos = np.zeros((sensor_angle_len, obstacle_len, 2))
 
         # for i in range(sensor_angle_len):
         #     for j in range(obstacle_len):
@@ -881,6 +866,4 @@ class UsvAsmcCaEnv(gym.Env):
         n = np.array([ned_x2 - ned_xboat, ned_y2 - ned_yboat], dtype=np.float32)
         J = self.compute_rot_matrix(psi.item())
         b = J.dot(n)
-        body_x2 = b[0]
-        body_y2 = b[1]
-        return (body_x2, body_y2)
+        return b
