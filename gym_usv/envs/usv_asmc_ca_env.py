@@ -109,7 +109,7 @@ class UsvAsmcCaEnv(gym.Env):
         self.w_y = 0.5 # Crosstracking error
         self.w_u = 0.72 # Velocity reward
         self.w_chi = 1.0 # Course direction error
-        self.k_ye = 1.0 # Crosstracking reward
+        self.k_ye = 0.05 # Crosstracking reward
         self.k_uu = 1.0 # Velocity Reward
         self.gamma_theta = 4.0  # 4.0
         self.gamma_x = 0.005  # 0.005
@@ -789,10 +789,11 @@ class UsvAsmcCaEnv(gym.Env):
         return self.w_chi * np.cos(chi_ak) * (np.hypot(u, v) / self.max_action0) + 1
 
     def _oa_reward(self, sensor):
-        numerator = np.sum(np.power(1 + np.abs(sensor[0] * self.gamma_theta), -1) * np.power(
-            self.gamma_x * np.power(np.maximum(sensor[1], self.epsilon), 2), -1))
-        denominator = np.sum(1 / (1 + np.abs(self.gamma_theta * sensor[0])))
+        gammainv = (1 + np.abs(sensor[0] * self.gamma_theta))
+        denominator = 1 / gammainv
 
+        distelem = (self.gamma_x * np.power(np.maximum(sensor[1], self.epsilon), 2))
+        numerator = 1 / distelem
         return -numerator / denominator
 
     def compute_reward(self, ye, chi_ak, action_dot0, action_dot1, collision, u_ref, u, v):
@@ -820,8 +821,8 @@ class UsvAsmcCaEnv(gym.Env):
             reward_pf = -1 + reward_coursedirection * reward_crosstrack + self.w_u * reward_u + self.w_action0 * reward_a0 + self.w_action1 * reward_a1
 
             # Obstacle avoidance reward
-            numerator = np.sum(np.power(1+np.abs(self.sensors[:,0] * self.gamma_theta), -1) * np.power(self.gamma_x * np.power(np.maximum(self.sensors[:,1], self.epsilon), 2), -1))
-            denominator = np.sum(1 / (1 + np.abs(self.gamma_theta * self.sensors[:, 0])))
+            numerator = np.sum(np.power(self.gamma_x * np.power(np.maximum(self.sensors[:,1], self.epsilon), 2), -1))
+            denominator = np.sum(np.power(1 + np.abs(self.sensors[:, 0] * self.gamma_theta), -1))
             reward_oa = -numerator / denominator
 
             #Exists reward
