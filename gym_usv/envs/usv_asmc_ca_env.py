@@ -80,7 +80,7 @@ class UsvAsmcCaEnv(gym.Env):
         self.lidar_resolution = self.sensor_span / self.sensor_num  # angle resolution in radians
         self.sector_num = 25  # number of sectors
         self.sector_size = np.int(self.sensor_num / self.sector_num)  # number of points per sector
-        self.sensor_max_range = 10.0  # m
+        self.sensor_max_range = 100.0  # m
         self.last_reward = 0
 
         # Boat radius
@@ -99,7 +99,7 @@ class UsvAsmcCaEnv(gym.Env):
 
         # Min and max actions
         # velocity 
-        self.min_action0 = 0
+        self.min_action0 = 0.25
         self.max_action0 = 1.0
         # angle (change to -pi and pi if necessary)
         self.min_action1 = -np.pi / 2
@@ -108,12 +108,12 @@ class UsvAsmcCaEnv(gym.Env):
         # Reward associated functions anf gains
         self.w_y = 0.5 # Crosstracking error
         self.w_u = 0.72 # Velocity reward
-        self.w_chi = 0.8 # Course direction error
-        self.k_ye = 0.55 # Crosstracking reward
+        self.w_chi = 1.8 # Course direction error
+        self.k_ye = 0.95 # Crosstracking reward
         self.k_uu = 18 # Velocity Reward
         self.gamma_theta = 4.0  # 4.0
         self.gamma_x = 0.005  # 0.005
-        self.epsilon = 12
+        self.epsilon = 5.0
         self.sigma_ye = 2.
         self.lambda_reward = 0.85
 
@@ -145,8 +145,8 @@ class UsvAsmcCaEnv(gym.Env):
         self.sectors = np.zeros((self.sector_num))
 
         # Min and max state vectors
-        self.low_state = np.full(34, -1.0)
-        self.high_state = np.full(34, 1.0)
+        self.low_state = np.hstack((np.full(34, -1.0), -20))
+        self.high_state = np.hstack((np.full(34, 1.0), 0))
 
         self.min_action = np.array([-1.0, -1.0])
         self.max_action = np.array([1.0, 1.0])
@@ -160,6 +160,9 @@ class UsvAsmcCaEnv(gym.Env):
         self.screen = None
         self.clock = None
         self.isopen = True
+
+    def _wrap_angle(self, angle):
+        return (angle + np.pi) % (2 * np.pi) - np.pi
 
     def _normalize_val(self, x, in_min, in_max):
         return self._map(x, in_min, in_max, -1, 1)
@@ -188,7 +191,7 @@ class UsvAsmcCaEnv(gym.Env):
         action1_last = self._denormalize_val(action1_last, self.min_action1, self.max_action1)
 
         state = np.hstack(
-            (u, v, r, ye, ye_dot, chi_ak, u_ref, sectors, action0_last, action1_last))
+            (u, v, r, ye, ye_dot, chi_ak, u_ref, sectors, action0_last, action1_last, state[7 + self.sector_num + 2:]))
 
         return state
 
@@ -210,7 +213,7 @@ class UsvAsmcCaEnv(gym.Env):
         action1_last = self._normalize_val(action1_last, self.min_action1, self.max_action1)
 
         state = np.hstack(
-            (u, v, r, ye, ye_dot, chi_ak, u_ref, sectors, action0_last, action1_last))
+            (u, v, r, ye, ye_dot, chi_ak, u_ref, sectors, action0_last, action1_last, state[7 + self.sector_num + 2:]))
 
         return state
 
@@ -225,6 +228,7 @@ class UsvAsmcCaEnv(gym.Env):
         '''
         # Read overall vector variables
         state = self._denormalize_state(self.state)
+        self.state = state
         position = self.position
 
         # Change from vectors to scalars
@@ -299,7 +303,7 @@ class UsvAsmcCaEnv(gym.Env):
 
         # Fill overall vector variables
         self.state = np.hstack(
-            (upsilon[0], upsilon[1], upsilon[2], ye, ye_dot, chi_ak, u_ref, sectors, action0_last, action1_last))
+            (upsilon[0], upsilon[1], upsilon[2], ye, ye_dot, chi_ak, u_ref, sectors, action0_last, action1_last, np.log10(self.lambda_reward)))
         self.state = self._normalize_state(self.state)
 
         # Reshape state
@@ -388,6 +392,10 @@ class UsvAsmcCaEnv(gym.Env):
 
         self.position = np.array([eta[0], eta[1], psi])
 
+        alpha_lambda = 1
+        beta_lambda = 2
+        self.lambda_reward = 10 ** (-np.random.gamma(1,2))
+
         state, _, _, _ = self.step([0,0])
         return state
 
@@ -410,12 +418,12 @@ class UsvAsmcCaEnv(gym.Env):
         for i in range(10):
             beta = np.math.asin(upsilon[1] / (0.001 + np.hypot(upsilon[0], upsilon[1])))
             chi = psi + beta
-            chi = np.where(np.greater(np.abs(chi), np.pi), (np.sign(chi)) * (np.abs(chi) - 2 * np.pi), chi)
+            #chi = np.where(np.greater(np.abs(chi), np.pi), (np.sign(chi)) * (np.abs(chi) - 2 * np.pi), chi)
 
             # Compute the desired heading
             psi_d = chi + action[1]
             # psi_d = ak + action[1]
-            psi_d = np.where(np.greater(np.abs(psi_d), np.pi), (np.sign(psi_d)) * (np.abs(psi_d) - 2 * np.pi), psi_d)
+            #psi_d = np.where(np.greater(np.abs(psi_d), np.pi), (np.sign(psi_d)) * (np.abs(psi_d) - 2 * np.pi), psi_d)
 
             # Second order filter to compute desired yaw rate
             r_d = (psi_d - psi_d_last) / self.integral_step
@@ -546,8 +554,6 @@ class UsvAsmcCaEnv(gym.Env):
             eta_dot_last = eta_dot
 
             psi = eta[2]
-            psi = np.where(np.greater(np.abs(psi), np.pi), (np.sign(psi)) * (np.abs(psi) - 2 * np.pi), psi)
-
 
         self.last = np.array(
             [eta_dot_last[0], eta_dot_last[1], eta_dot_last[2], upsilon_dot_last[0], upsilon_dot_last[1],
@@ -790,7 +796,7 @@ class UsvAsmcCaEnv(gym.Env):
     def compute_reward(self, ye, chi_ak, action_dot0, action_dot1, collision, u_ref, u, v):
         info = {}
         if (collision == False):
-            chi_ak = np.abs(chi_ak)
+            #chi_ak = np.abs(chi_ak)
             # Cross tracking reward
             reward_ye = np.where(np.greater(ye, self.sigma_ye), np.exp(-self.k_ye * ye),
                                  np.exp(-self.k_ye * np.power(ye, 2) / self.sigma_ye))
@@ -802,12 +808,15 @@ class UsvAsmcCaEnv(gym.Env):
             reward_a0 = np.math.tanh(-self.c_action0 * np.power(action_dot0, 2)) * self.k_action0
             # Action angle gradual change reward
             reward_a1 = np.math.tanh(-self.c_action1 * np.power(action_dot1, 2)) * self.k_action1
+            reward_a0 = 0
+            reward_a1 = 0
 
-            # Path following reward 
-            reward_coursedirection = self.w_chi * np.cos(chi_ak) * (np.hypot(u, v) / self.max_action0)
+            # Path following reward
+            #print(np.cos(chi_ak))
+            reward_coursedirection = self.w_chi * np.cos(chi_ak) * (np.hypot(u, v) / self.max_action0) + 1
             reward_crosstrack = np.exp(-self.k_ye * np.abs(ye)) + 1
-            reward_pf = -1 + reward_coursedirection * reward_crosstrack
-            reward_pf = self.w_y * reward_ye + self.w_chi * reward_chi + self.w_u * reward_u + self.w_action0 * reward_a0 + self.w_action1 * reward_a1
+            #reward_pf = -1 + reward_coursedirection * reward_crosstrack
+            reward_pf = -1 + reward_coursedirection * reward_crosstrack + self.w_u * reward_u + self.w_action0 * reward_a0 + self.w_action1 * reward_a1
 
             # Obstacle avoidance reward
             numerator = np.sum(np.power(1+np.abs(self.sensors[:,0] * self.gamma_theta), -1) * np.power(self.gamma_x * np.power(np.maximum(self.sensors[:,1], self.epsilon), 2), -1))
@@ -815,7 +824,7 @@ class UsvAsmcCaEnv(gym.Env):
             reward_oa = -numerator / denominator
 
             #Exists reward
-            reward_exists = -self.lambda_reward * 0.1
+            reward_exists = -self.lambda_reward * 0.70
 
             # Total non-collision reward
             reward = self.lambda_reward * reward_pf + (1 - self.lambda_reward) * reward_oa + reward_exists
@@ -829,18 +838,19 @@ class UsvAsmcCaEnv(gym.Env):
             info['reward_crosstrack'] = reward_crosstrack
             info['reward_oa'] = reward_oa
             info['reward_pf'] = reward_pf
+            #print(info)
 
-            if (np.abs(reward) > 50 and not collision):
-                print("PANIK")
+            #if (np.abs(reward) > 100 and not collision):
+                #print("PANIK")
 
         else:
             # Collision Reward
-            reward = (1 - self.lambda_reward) * -1000
+            reward = (1 - self.lambda_reward) * -2000
 
 
         #print(reward)
-        info['reward'] = reward / 1000
-        return reward / 1000, info
+        info['reward'] = reward
+        return reward, info
 
     def body_to_path(self, x2, y2, alpha):
         '''
