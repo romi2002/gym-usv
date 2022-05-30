@@ -89,10 +89,10 @@ class UsvAsmcCaEnv(gym.Env):
         self.safety_distance = 0.1
 
         # Map limits in meters
-        self.max_y = 50
-        self.min_y = -50
-        self.max_x = 50
-        self.min_x = -50
+        self.max_y = 10
+        self.min_y = -10
+        self.max_x = 30
+        self.min_x = -10
 
         # Variable for the visualizer
         self.viewer = None
@@ -341,14 +341,14 @@ class UsvAsmcCaEnv(gym.Env):
         # Desired speed
         u_ref = np.random.uniform(low=self.min_u_ref, high=self.max_u_ref)
         # number of obstacles 
-        self.num_obs = np.random.random_integers(low=2, high=20)
+        self.num_obs = np.random.random_integers(low=15, high=25)
         # array of positions in x and y and radius
-        self.posx = np.random.normal(15, 10, size=(self.num_obs, 1))
-        self.posy = np.random.uniform(low=-10, high=10, size=(self.num_obs, 1))
-        self.radius = np.random.uniform(low=0.1, high=1.5, size=(self.num_obs, 1))
+        self.posx = np.random.normal(self.max_x / 3, 10, size=(self.num_obs, 1))
+        self.posy = np.random.normal(0.0, 5, size=(self.num_obs, 1))
+        self.radius = np.random.normal(1.1, 0.65, size=(self.num_obs, 1))
 
         distance = np.hypot(self.posx - eta[0],
-                            self.posy - eta[1]) - self.radius - self.boat_radius - (self.safety_radius + 1.0)
+                            self.posy - eta[1]) - self.radius - self.boat_radius - (self.safety_radius + 0.35)
         distance = distance.reshape(-1)
 
         # Delete all obstacles within boat radius
@@ -695,6 +695,7 @@ class UsvAsmcCaEnv(gym.Env):
         screen_height = 800
 
         world_width = self.max_y - self.min_y
+        world_width = 20
         scale = screen_width / world_width
 
         if info is not None:
