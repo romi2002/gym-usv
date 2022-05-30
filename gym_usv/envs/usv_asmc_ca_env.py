@@ -89,10 +89,10 @@ class UsvAsmcCaEnv(gym.Env):
         self.safety_distance = 0.1
 
         # Map limits in meters
-        self.max_y = 10
-        self.min_y = -10
-        self.max_x = 30
-        self.min_x = -10
+        self.max_y = 50
+        self.min_y = -50
+        self.max_x = 50
+        self.min_x = -50
 
         # Variable for the visualizer
         self.viewer = None
@@ -306,19 +306,6 @@ class UsvAsmcCaEnv(gym.Env):
 
         # Reshape state
         state = self.state.reshape(self.observation_space.shape[0]).astype(np.float32)
-
-        # finish and penalize if oob
-        if position[0] < self.min_x or position[0] > self.max_x:
-            done = True
-            reward = (1 - self.lambda_reward) * -2000
-
-        if position[1] < self.min_y or position[1] > self.max_y:
-            done = True
-            if(position[1] < self.min_y):
-                reward = (1 - self.lambda_reward) * -2000
-            else:
-                #Reward finishing the course ?
-                reward = (1 - self.lambda_reward) * 100
 
         info.update({"position": position, "sensors": self.sensors, "sectors": sectors, "thrusters": (tport, tstbd)})
         return state, reward, done, info
