@@ -782,6 +782,19 @@ class UsvAsmcCaEnv(gym.Env):
             self.viewer.close()
             self.viewer = None
 
+    def _crosstrack_reward(self, ye):
+        return np.exp(-self.k_ye * np.abs(ye)) + 1
+
+    def _coursedirection_reward(self, chi_ak, u, v):
+        return self.w_chi * np.cos(chi_ak) * (np.hypot(u, v) / self.max_action0) + 1
+
+    def _oa_reward(self, sensor):
+        numerator = np.sum(np.power(1 + np.abs(sensor[0] * self.gamma_theta), -1) * np.power(
+            self.gamma_x * np.power(np.maximum(sensor[1], self.epsilon), 2), -1))
+        denominator = np.sum(1 / (1 + np.abs(self.gamma_theta * sensor[0])))
+
+        return -numerator / denominator
+
     def compute_reward(self, ye, chi_ak, action_dot0, action_dot1, collision, u_ref, u, v):
         info = {}
         if (collision == False):
@@ -801,8 +814,8 @@ class UsvAsmcCaEnv(gym.Env):
             reward_a1 = 0
 
             # Path following reward
-            reward_coursedirection = self.w_chi * np.cos(chi_ak) * (np.hypot(u, v) / self.max_action0) + 1
-            reward_crosstrack = np.exp(-self.k_ye * np.abs(ye)) + 1
+            reward_coursedirection = self._coursedirection_reward(chi_ak, u, v)
+            reward_crosstrack = self._crosstrack_reward(ye)
             #reward_pf = -1 + reward_coursedirection * reward_crosstrack
             reward_pf = -1 + reward_coursedirection * reward_crosstrack + self.w_u * reward_u + self.w_action0 * reward_a0 + self.w_action1 * reward_a1
 
