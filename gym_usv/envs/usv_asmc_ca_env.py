@@ -108,13 +108,13 @@ class UsvAsmcCaEnv(gym.Env):
         # Reward associated functions anf gains
         self.w_y = 0.5 # Crosstracking error
         self.w_u = 0.72 # Velocity reward
-        self.w_chi = 1.8 # Course direction error
-        self.k_ye = 0.95 # Crosstracking reward
-        self.k_uu = 18 # Velocity Reward
+        self.w_chi = 1.0 # Course direction error
+        self.k_ye = 1.0 # Crosstracking reward
+        self.k_uu = 1.0 # Velocity Reward
         self.gamma_theta = 4.0  # 4.0
         self.gamma_x = 0.005  # 0.005
-        self.epsilon = 5.0
-        self.sigma_ye = 2.
+        self.epsilon = 1.0
+        self.sigma_ye = 0.05
         self.lambda_reward = 0.85
 
         self.w_action0 = 0.2
@@ -132,8 +132,8 @@ class UsvAsmcCaEnv(gym.Env):
         self.max_v = 1.0
         self.min_r = -4.
         self.max_r = 4.
-        self.min_ye = -10.
-        self.max_ye = 10.
+        self.min_ye = -20.
+        self.max_ye = 20.
         self.min_ye_dot = -1.5
         self.max_ye_dot = 1.5
         self.min_chi_ak = -np.pi
@@ -256,10 +256,8 @@ class UsvAsmcCaEnv(gym.Env):
         chi = psi + beta
         chi = np.where(np.greater(np.abs(chi), np.pi), (np.sign(chi)) * (np.abs(chi) - 2 * np.pi), chi)
         # Compute angle between USV and path
-        chi_ak = chi - ak
-        chi_ak = np.where(np.greater(np.abs(chi_ak), np.pi), (np.sign(chi_ak)) * (np.abs(chi_ak) - 2 * np.pi), chi_ak)
-        psi_ak = psi - ak
-        psi_ak = np.where(np.greater(np.abs(psi_ak), np.pi), (np.sign(psi_ak)) * (np.abs(psi_ak) - 2 * np.pi), psi_ak)
+        chi_ak = self._wrap_angle(chi - ak)
+        psi_ak = self._wrap_angle(psi - ak)
 
         # Compute cross-track error
         ye = -(eta[0] - x_0) * np.math.sin(ak) + (eta[1] - y_0) * np.math.cos(ak)
@@ -312,12 +310,15 @@ class UsvAsmcCaEnv(gym.Env):
         # finish and penalize if oob
         if position[0] < self.min_x or position[0] > self.max_x:
             done = True
-            reward = (1 - self.lambda_reward) * -1
+            reward = (1 - self.lambda_reward) * -2000
 
         if position[1] < self.min_y or position[1] > self.max_y:
             done = True
             if(position[1] < self.min_y):
-                reward = (1 - self.lambda_reward) * -1
+                reward = (1 - self.lambda_reward) * -2000
+            else:
+                #Reward finishing the course ?
+                reward = (1 - self.lambda_reward) * 100
 
         info.update({"position": position, "sensors": self.sensors, "sectors": sectors, "thrusters": (tport, tstbd)})
         return state, reward, done, info
@@ -812,7 +813,6 @@ class UsvAsmcCaEnv(gym.Env):
             reward_a1 = 0
 
             # Path following reward
-            #print(np.cos(chi_ak))
             reward_coursedirection = self.w_chi * np.cos(chi_ak) * (np.hypot(u, v) / self.max_action0) + 1
             reward_crosstrack = np.exp(-self.k_ye * np.abs(ye)) + 1
             #reward_pf = -1 + reward_coursedirection * reward_crosstrack
