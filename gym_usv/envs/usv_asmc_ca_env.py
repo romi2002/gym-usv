@@ -803,11 +803,12 @@ class UsvAsmcCaEnv(gym.Env):
         if (collision == False):
             #chi_ak = np.abs(chi_ak)
             # Cross tracking reward
-            reward_ye = np.exp(-self.k_ye * np.abs(ye)) + 1
+            reward_ye = np.clip(np.exp(-self.k_ye * np.abs(ye)) + 1, -10, 10)
             # Velocity reward
-            reward_u = np.exp(-self.k_uu * np.abs(u_ref - np.hypot(u, v)))
+            reward_u = np.clip(np.exp(-self.k_uu * np.abs(u_ref - np.hypot(u, v))), -10, 10)
             # Angle reward
             reward_chi = np.cos(chi_ak) * (np.hypot(u,v) / self.max_u)
+            reward_chi = np.exp(-5.0 * reward_chi)
             # Action velocity gradual change reward
             reward_a0 = np.math.tanh(-self.c_action0 * np.power(action_dot0, 2)) * self.k_action0
             # Action angle gradual change reward
