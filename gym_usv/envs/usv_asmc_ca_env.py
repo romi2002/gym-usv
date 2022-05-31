@@ -815,7 +815,6 @@ class UsvAsmcCaEnv(gym.Env):
             reward_crosstrack = self._crosstrack_reward(ye)
             #reward_pf = -1 + reward_coursedirection * reward_crosstrack
             reward_pf = -1 + reward_coursedirection * reward_crosstrack + self.w_u * reward_u
-            print(f"l: {self.lambda_reward}, {reward_pf}")
             # Obstacle avoidance reward
             numerator = np.sum(np.power(self.gamma_x * np.power(np.maximum(self.sensors[:,1], self.epsilon), 2), -1))
             denominator = np.sum(1 + np.abs(self.sensors[:, 0] * self.gamma_theta))
