@@ -300,6 +300,9 @@ class UsvAsmcCaEnv(gym.Env):
             ye = np.copysign(self.max_ye, ye)
             done = True
 
+        if x > self.max_x:
+            done = True
+
         # Fill overall vector variables
         self.state = np.hstack(
             (upsilon[0], upsilon[1], upsilon[2], ye, ye_dot, chi_ak, u_ref, sectors, action0_last, action1_last, np.log10(self.lambda_reward)))
