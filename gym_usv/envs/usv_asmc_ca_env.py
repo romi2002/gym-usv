@@ -107,14 +107,15 @@ class UsvAsmcCaEnv(gym.Env):
 
         # Reward associated functions anf gains
         self.w_y = 0.5 # Crosstracking error
-        self.w_u = 0.72 # Velocity reward
         self.w_chi = 1.0 # Course direction error
-        self.k_ye = 0.05 # Crosstracking reward
-        self.k_uu = 1.0 # Velocity Reward
+        self.k_ye = 0.4 # Crosstracking reward
+
+        self.k_uu = 8.0 # Velocity Reward
+        self.w_u = 2 # Velocity reward
+
         self.gamma_theta = 4.0  # 4.0
         self.gamma_x = 0.005  # 0.005
         self.epsilon = 1.0
-        self.sigma_ye = 0.05
         self.lambda_reward = 0.85
 
         self.w_action0 = 0.2
@@ -122,8 +123,8 @@ class UsvAsmcCaEnv(gym.Env):
         # Action gradual change reward
         self.c_action0 = 1. / np.power((self.max_action0 / 2 - self.min_action0 / 2) / self.integral_step, 2)
         self.c_action1 = 1. / np.power((self.max_action1 / 2 - self.min_action1 / 2) / self.integral_step, 2)
-        self.k_action0 = 1.5
-        self.k_action1 = 2.0
+        self.k_action0 = 12500
+        self.k_action1 = 12500
 
         # Min and max values of the state
         self.min_u = -1.5
@@ -380,9 +381,7 @@ class UsvAsmcCaEnv(gym.Env):
 
         self.position = np.array([eta[0], eta[1], psi])
 
-        alpha_lambda = 1
-        beta_lambda = 2
-        self.lambda_reward = 10 ** (-np.random.gamma(1,2))
+        self.lambda_reward = np.random.beta(5, 1.65)
 
         state, _, _, _ = self.step([0,0])
         return state
@@ -790,7 +789,7 @@ class UsvAsmcCaEnv(gym.Env):
 
     def _oa_reward(self, sensor):
         gammainv = (1 + np.abs(sensor[0] * self.gamma_theta))
-        denominator = 1 / gammainv
+        denominator = gammainv
 
         distelem = (self.gamma_x * np.power(np.maximum(sensor[1], self.epsilon), 2))
         numerator = 1 / distelem
@@ -801,8 +800,7 @@ class UsvAsmcCaEnv(gym.Env):
         if (collision == False):
             #chi_ak = np.abs(chi_ak)
             # Cross tracking reward
-            reward_ye = np.where(np.greater(ye, self.sigma_ye), np.exp(-self.k_ye * ye),
-                                 np.exp(-self.k_ye * np.power(ye, 2) / self.sigma_ye))
+            reward_ye = np.exp(-self.k_ye * np.abs(ye)) + 1
             # Velocity reward
             reward_u = np.exp(-self.k_uu * np.abs(u_ref - np.hypot(u, v)))
             # Angle reward
@@ -811,25 +809,23 @@ class UsvAsmcCaEnv(gym.Env):
             reward_a0 = np.math.tanh(-self.c_action0 * np.power(action_dot0, 2)) * self.k_action0
             # Action angle gradual change reward
             reward_a1 = np.math.tanh(-self.c_action1 * np.power(action_dot1, 2)) * self.k_action1
-            reward_a0 = 0
-            reward_a1 = 0
 
             # Path following reward
             reward_coursedirection = self._coursedirection_reward(chi_ak, u, v)
             reward_crosstrack = self._crosstrack_reward(ye)
             #reward_pf = -1 + reward_coursedirection * reward_crosstrack
-            reward_pf = -1 + reward_coursedirection * reward_crosstrack + self.w_u * reward_u + self.w_action0 * reward_a0 + self.w_action1 * reward_a1
-
+            reward_pf = -1 + reward_coursedirection * reward_crosstrack + self.w_u * reward_u
+            print(f"l: {self.lambda_reward}, {reward_pf}")
             # Obstacle avoidance reward
             numerator = np.sum(np.power(self.gamma_x * np.power(np.maximum(self.sensors[:,1], self.epsilon), 2), -1))
-            denominator = np.sum(np.power(1 + np.abs(self.sensors[:, 0] * self.gamma_theta), -1))
+            denominator = np.sum(1 + np.abs(self.sensors[:, 0] * self.gamma_theta))
             reward_oa = -numerator / denominator
 
             #Exists reward
             reward_exists = -self.lambda_reward * 0.70
 
             # Total non-collision reward
-            reward = self.lambda_reward * reward_pf + (1 - self.lambda_reward) * reward_oa + reward_exists
+            reward = self.lambda_reward * reward_pf + (1 - self.lambda_reward) * reward_oa + reward_exists + reward_a0 + reward_a1
 
             info['reward_ye'] = reward_ye
             info['reward_u'] = reward_u
