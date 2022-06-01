@@ -80,7 +80,7 @@ class UsvAsmcCaEnv(gym.Env):
         self.lidar_resolution = self.sensor_span / self.sensor_num  # angle resolution in radians
         self.sector_num = 25  # number of sectors
         self.sector_size = np.int(self.sensor_num / self.sector_num)  # number of points per sector
-        self.sensor_max_range = 100.0  # m
+        self.sensor_max_range = 7.0  # m
         self.last_reward = 0
 
         # Boat radius
@@ -115,7 +115,7 @@ class UsvAsmcCaEnv(gym.Env):
 
         self.gamma_theta = 4.0  # 4.0
         self.gamma_x = 0.005  # 0.005
-        self.epsilon = 1.0
+        self.epsilon = 3.0
         self.lambda_reward = 0.85
 
         self.w_action0 = 0.2
@@ -123,8 +123,8 @@ class UsvAsmcCaEnv(gym.Env):
         # Action gradual change reward
         self.c_action0 = 1. / np.power((self.max_action0 / 2 - self.min_action0 / 2) / self.integral_step, 2)
         self.c_action1 = 1. / np.power((self.max_action1 / 2 - self.min_action1 / 2) / self.integral_step, 2)
-        self.k_action0 = 0.65
-        self.k_action1 = 0.95
+        self.k_action0 = 1.65
+        self.k_action1 = 1.95
 
         # Min and max values of the state
         self.min_u = -1.5
