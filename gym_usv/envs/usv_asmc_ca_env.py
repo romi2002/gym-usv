@@ -830,7 +830,7 @@ class UsvAsmcCaEnv(gym.Env):
             # Obstacle avoidance reward
             numerator = np.sum(np.power(self.gamma_x * np.power(np.maximum(self.sensors[:,1], self.epsilon), 2), -1))
             denominator = np.sum(1 + np.abs(self.sensors[:, 0] * self.gamma_theta))
-            reward_oa = -(np.log(numerator / denominator))
+            reward_oa = -numerator / denominator
 
             #Exists reward
             reward_exists = -self.lambda_reward * 1.25
