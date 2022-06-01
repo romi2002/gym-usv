@@ -161,6 +161,7 @@ class UsvAsmcCaEnv(gym.Env):
         self.screen = None
         self.clock = None
         self.isopen = True
+        self.total_reward = 0
 
     def _wrap_angle(self, angle):
         return (angle + np.pi) % (2 * np.pi) - np.pi
@@ -273,7 +274,7 @@ class UsvAsmcCaEnv(gym.Env):
             collision = False
         else:
             collision = np.min(distance) < 0
-            #done = collision
+            done = collision
 
         # Compute sensor readings
         self._compute_sensor_measurments(distance)
@@ -285,6 +286,10 @@ class UsvAsmcCaEnv(gym.Env):
 
         # Compute reward
         reward, info = self.compute_reward(ye_abs, chi_ak, action_dot0, action_dot1, collision, u_ref, u, v)
+        self.total_reward += reward
+
+        if self.total_reward < -5000:
+            done = True
 
         # Compute velocities relative to path (for ye derivative as ye_dot = v_ak)
         xe_dot, ye_dot = self.body_to_path(upsilon[0], upsilon[1], psi_ak)
@@ -294,6 +299,7 @@ class UsvAsmcCaEnv(gym.Env):
         #
         # else:
         #     done = False
+
 
         #Clamp ye and finish ep
         if abs(ye) > self.max_ye:
@@ -824,10 +830,10 @@ class UsvAsmcCaEnv(gym.Env):
             # Obstacle avoidance reward
             numerator = np.sum(np.power(self.gamma_x * np.power(np.maximum(self.sensors[:,1], self.epsilon), 2), -1))
             denominator = np.sum(1 + np.abs(self.sensors[:, 0] * self.gamma_theta))
-            reward_oa = -(np.log(numerator / denominator) + 5)
+            reward_oa = -(np.log(numerator / denominator))
 
             #Exists reward
-            reward_exists = -self.lambda_reward * 0.70
+            reward_exists = -self.lambda_reward * 1.25
 
             # Total non-collision reward
             reward = self.lambda_reward * reward_pf + (1 - self.lambda_reward) * reward_oa + reward_exists + reward_a0 + reward_a1
@@ -849,7 +855,6 @@ class UsvAsmcCaEnv(gym.Env):
         else:
             # Collision Reward
             reward = (1 - self.lambda_reward) * -2000
-
 
         #print(reward)
         info['reward'] = reward
