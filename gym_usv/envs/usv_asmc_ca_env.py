@@ -273,7 +273,7 @@ class UsvAsmcCaEnv(gym.Env):
             collision = False
         else:
             collision = np.min(distance) < 0
-            done = collision
+            #done = collision
 
         # Compute sensor readings
         self._compute_sensor_measurments(distance)
