@@ -80,7 +80,7 @@ class UsvAsmcCaEnv(gym.Env):
         self.lidar_resolution = self.sensor_span / self.sensor_num  # angle resolution in radians
         self.sector_num = 25  # number of sectors
         self.sector_size = np.int(self.sensor_num / self.sector_num)  # number of points per sector
-        self.sensor_max_range = 7.0  # m
+        self.sensor_max_range = 30.0  # m
         self.last_reward = 0
 
         # Boat radius
@@ -107,7 +107,7 @@ class UsvAsmcCaEnv(gym.Env):
 
         # Reward associated functions anf gains
         self.w_y = 0.5 # Crosstracking error
-        self.w_chi = 1.0 # Course direction error
+        self.w_chi = 2.0 # Course direction error
         self.k_ye = 0.4 # Crosstracking reward
 
         self.k_uu = 8.0 # Velocity Reward
@@ -788,7 +788,9 @@ class UsvAsmcCaEnv(gym.Env):
         return np.exp(-self.k_ye * np.abs(ye)) + 1
 
     def _coursedirection_reward(self, chi_ak, u, v):
-        return self.w_chi * np.cos(chi_ak) * (np.hypot(u, v) / self.max_action0) + 1
+        reward = -self.w_chi * -np.cos(chi_ak) * (np.hypot(u, v) / self.max_action0) + 1
+        return np.exp(reward)
+
 
     def _oa_reward(self, sensor):
         gammainv = (1 + np.abs(sensor[0] * self.gamma_theta))
@@ -822,7 +824,7 @@ class UsvAsmcCaEnv(gym.Env):
             # Obstacle avoidance reward
             numerator = np.sum(np.power(self.gamma_x * np.power(np.maximum(self.sensors[:,1], self.epsilon), 2), -1))
             denominator = np.sum(1 + np.abs(self.sensors[:, 0] * self.gamma_theta))
-            reward_oa = -numerator / denominator
+            reward_oa = -(np.log(numerator / denominator) + 5)
 
             #Exists reward
             reward_exists = -self.lambda_reward * 0.70
