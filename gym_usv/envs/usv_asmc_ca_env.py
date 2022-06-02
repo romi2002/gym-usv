@@ -282,7 +282,7 @@ class UsvAsmcCaEnv(gym.Env):
         # Feasability pooling: compute sectors
         sectors = self._compute_feasability_pooling(self.sensors)
         self.sectors = sectors
-        sectors = np.clip((1 - sectors / self.sensor_max_range), -1, 1)
+        sectors = np.clip((1 - sectors / self.sensor_max_range), -1, 1) * 2 - 1
 
         # Compute reward
         reward, info = self.compute_reward(ye_abs, chi_ak, action_dot0, action_dot1, collision, u_ref, u, v)
@@ -833,7 +833,7 @@ class UsvAsmcCaEnv(gym.Env):
             reward_oa = -numerator / denominator
 
             #Exists reward
-            reward_exists = -self.lambda_reward * 1.25
+            reward_exists = -self.lambda_reward * 0.10
 
             # Total non-collision reward
             reward = self.lambda_reward * reward_pf + (1 - self.lambda_reward) * reward_oa + reward_exists + reward_a0 + reward_a1
