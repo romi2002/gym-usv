@@ -113,9 +113,9 @@ class UsvAsmcCaEnv(gym.Env):
         self.k_uu = 15.0 # Velocity Reward
         self.w_u = 1 # Velocity reward
 
-        self.gamma_theta = 1.0  # 4.0
-        self.gamma_x = 0.002  # 0.005
-        self.epsilon = 3.0
+        self.gamma_theta = 4.0  # 4.0
+        self.gamma_x = 0.005  # 0.005
+        self.epsilon = 1.0
         self.lambda_reward = 0.85
 
         self.w_action0 = 0.2
