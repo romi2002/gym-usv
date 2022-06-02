@@ -108,13 +108,13 @@ class UsvAsmcCaEnv(gym.Env):
         # Reward associated functions anf gains
         self.w_y = 0.5 # Crosstracking error
         self.w_chi = 2.0 # Course direction error
-        self.k_ye = 0.4 # Crosstracking reward
+        self.k_ye = 1.25 # Crosstracking reward
 
-        self.k_uu = 8.0 # Velocity Reward
-        self.w_u = 2 # Velocity reward
+        self.k_uu = 15.0 # Velocity Reward
+        self.w_u = 1 # Velocity reward
 
-        self.gamma_theta = 4.0  # 4.0
-        self.gamma_x = 0.005  # 0.005
+        self.gamma_theta = 1.0  # 4.0
+        self.gamma_x = 0.002  # 0.005
         self.epsilon = 3.0
         self.lambda_reward = 0.85
 
@@ -123,8 +123,8 @@ class UsvAsmcCaEnv(gym.Env):
         # Action gradual change reward
         self.c_action0 = 1. / np.power((self.max_action0 / 2 - self.min_action0 / 2) / self.integral_step, 2)
         self.c_action1 = 1. / np.power((self.max_action1 / 2 - self.min_action1 / 2) / self.integral_step, 2)
-        self.k_action0 = 1.65
-        self.k_action1 = 1.95
+        self.k_action0 = 1.0
+        self.k_action1 = 1.0
 
         # Min and max values of the state
         self.min_u = -1.5
@@ -795,7 +795,7 @@ class UsvAsmcCaEnv(gym.Env):
 
     def _coursedirection_reward(self, chi_ak, u, v):
         reward = -self.w_chi * -np.cos(chi_ak) * (np.hypot(u, v) / self.max_action0) + 1
-        return np.exp(reward)
+        return reward
 
 
     def _oa_reward(self, sensor):
