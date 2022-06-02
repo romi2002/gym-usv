@@ -306,7 +306,10 @@ class UsvAsmcCaEnv(gym.Env):
             ye = np.copysign(self.max_ye, ye)
             done = True
 
-        if x > self.max_x:
+        if x > self.max_x or x < self.min_x:
+            done = True
+
+        if y > self.max_y or y < self.min_y:
             done = True
 
         # Fill overall vector variables
@@ -354,7 +357,7 @@ class UsvAsmcCaEnv(gym.Env):
         self.num_obs = np.random.random_integers(low=15, high=25)
         # array of positions in x and y and radius
         self.posx = np.random.normal(self.max_x / 3, 10, size=(self.num_obs, 1))
-        self.posy = np.random.normal(0.0, 5, size=(self.num_obs, 1))
+        self.posy = np.random.normal(0.0, 4.5, size=(self.num_obs, 1))
         self.radius = np.clip(np.random.normal(1.1, 0.65, size=(self.num_obs, 1)), 0.5, 2.0)
 
         distance = np.hypot(self.posx - eta[0],
@@ -390,7 +393,8 @@ class UsvAsmcCaEnv(gym.Env):
 
         self.position = np.array([eta[0], eta[1], psi])
 
-        self.lambda_reward = np.random.beta(5, 1.65)
+        self.lambda_reward = np.random.beta(1.65,1.25)
+        print(self.lambda_reward)
         self.total_reward = 0
 
         state, _, _, _ = self.step([0,0])
