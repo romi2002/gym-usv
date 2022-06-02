@@ -394,7 +394,6 @@ class UsvAsmcCaEnv(gym.Env):
         self.position = np.array([eta[0], eta[1], psi])
 
         self.lambda_reward = np.random.beta(1.65,1.25)
-        print(self.lambda_reward)
         self.total_reward = 0
 
         state, _, _, _ = self.step([0,0])
