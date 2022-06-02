@@ -355,7 +355,7 @@ class UsvAsmcCaEnv(gym.Env):
         # array of positions in x and y and radius
         self.posx = np.random.normal(self.max_x / 3, 10, size=(self.num_obs, 1))
         self.posy = np.random.normal(0.0, 5, size=(self.num_obs, 1))
-        self.radius = np.random.normal(1.1, 0.65, size=(self.num_obs, 1))
+        self.radius = np.clip(np.random.normal(1.1, 0.65, size=(self.num_obs, 1)), 0.5, 2.0)
 
         distance = np.hypot(self.posx - eta[0],
                             self.posy - eta[1]) - self.radius - self.boat_radius - (self.safety_radius + 0.35)
