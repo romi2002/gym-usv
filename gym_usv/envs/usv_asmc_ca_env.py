@@ -123,8 +123,8 @@ class UsvAsmcCaEnv(gym.Env):
         # Action gradual change reward
         self.c_action0 = 1. / np.power((self.max_action0 / 2 - self.min_action0 / 2) / self.integral_step, 2)
         self.c_action1 = 1. / np.power((self.max_action1 / 2 - self.min_action1 / 2) / self.integral_step, 2)
-        self.k_action0 = 1.0
-        self.k_action1 = 1.0
+        self.k_action0 = 2.0
+        self.k_action1 = 3.5
 
         # Min and max values of the state
         self.min_u = -1.5
@@ -133,8 +133,8 @@ class UsvAsmcCaEnv(gym.Env):
         self.max_v = 1.0
         self.min_r = -4.
         self.max_r = 4.
-        self.min_ye = -20.
-        self.max_ye = 20.
+        self.min_ye = -40.
+        self.max_ye = 40.
         self.min_ye_dot = -1.5
         self.max_ye_dot = 1.5
         self.min_chi_ak = -np.pi
@@ -837,7 +837,7 @@ class UsvAsmcCaEnv(gym.Env):
             reward_oa = -numerator / denominator
 
             #Exists reward
-            reward_exists = -self.lambda_reward * 0.10
+            reward_exists = -self.lambda_reward * 0.3
 
             # Total non-collision reward
             reward = self.lambda_reward * reward_pf + (1 - self.lambda_reward) * reward_oa + reward_exists + reward_a0 + reward_a1
