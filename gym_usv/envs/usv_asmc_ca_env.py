@@ -110,21 +110,19 @@ class UsvAsmcCaEnv(gym.Env):
         self.w_chi = 2.0 # Course direction error
         self.k_ye = 1.25 # Crosstracking reward
 
-        self.k_uu = 15.0 # Velocity Reward
+        self.k_uu = 10.0 # Velocity Reward
         self.w_u = 1 # Velocity reward
 
-        self.gamma_theta = 4.0  # 4.0
+        self.gamma_theta = 10.0  # 4.0
         self.gamma_x = 0.005  # 0.005
-        self.epsilon = 1.0
+        self.epsilon = 3.5
         self.lambda_reward = 0.85
 
-        self.w_action0 = 0.2
-        self.w_action1 = 0.2
         # Action gradual change reward
         self.c_action0 = 1. / np.power((self.max_action0 / 2 - self.min_action0 / 2) / self.integral_step, 2)
         self.c_action1 = 1. / np.power((self.max_action1 / 2 - self.min_action1 / 2) / self.integral_step, 2)
-        self.k_action0 = 2.0
-        self.k_action1 = 3.5
+        self.k_action0 = 5.0
+        self.k_action1 = 7.5
 
         # Min and max values of the state
         self.min_u = -1.5
@@ -393,7 +391,7 @@ class UsvAsmcCaEnv(gym.Env):
 
         self.position = np.array([eta[0], eta[1], psi])
 
-        self.lambda_reward = np.random.beta(1.65,1.25)
+        self.lambda_reward = np.random.beta(5, 1.25)
         self.total_reward = 0
 
         state, _, _, _ = self.step([0,0])
