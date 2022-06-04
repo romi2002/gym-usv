@@ -302,12 +302,18 @@ class UsvAsmcCaEnv(gym.Env):
         #Clamp ye and finish ep
         if abs(ye) > self.max_ye:
             ye = np.copysign(self.max_ye, ye)
+            reward = (1 - self.lambda_reward) * -1000
             done = True
 
-        if x > self.max_x or x < self.min_x:
+        if x < self.min_x:
+            done = True
+            reward = (1 - self.lambda_reward) * -1000
+
+        if x > self.max_x:
             done = True
 
         if y > self.max_y or y < self.min_y:
+            reward = (1 - self.lambda_reward) * -1000
             done = True
 
         # Fill overall vector variables
