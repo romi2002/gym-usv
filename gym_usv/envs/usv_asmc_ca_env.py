@@ -107,8 +107,8 @@ class UsvAsmcCaEnv(gym.Env):
 
         # Reward associated functions anf gains
         self.w_y = 0.5 # Crosstracking error
-        self.w_chi = 2.0 # Course direction error
-        self.k_ye = 0.4 # Crosstracking reward
+        self.w_chi = 1.0 # Course direction error
+        self.k_ye = 0.5 # Crosstracking reward
 
         self.k_uu = 8.0 # Velocity Reward
         self.w_u = 2 # Velocity reward
@@ -794,8 +794,8 @@ class UsvAsmcCaEnv(gym.Env):
         return np.exp(-self.k_ye * np.abs(ye)) + 1
 
     def _coursedirection_reward(self, chi_ak, u, v):
-        reward = -self.w_chi * -np.cos(chi_ak) * (np.hypot(u, v) / self.max_action0) + 1
-        return np.exp(reward)
+        reward = self.w_chi * np.cos(chi_ak) * (np.hypot(u, v) / self.max_action0) + 1
+        return reward
 
 
     def _oa_reward(self, sensor):
@@ -809,14 +809,8 @@ class UsvAsmcCaEnv(gym.Env):
     def compute_reward(self, ye, chi_ak, action_dot0, action_dot1, collision, u_ref, u, v):
         info = {}
         if (collision == False):
-            #chi_ak = np.abs(chi_ak)
-            # Cross tracking reward
-            reward_ye = np.clip(np.exp(-self.k_ye * np.abs(ye)) + 1, -10, 10)
             # Velocity reward
             reward_u = np.clip(np.exp(-self.k_uu * np.abs(u_ref - np.hypot(u, v))), -10, 10)
-            # Angle reward
-            reward_chi = np.cos(chi_ak) * (np.hypot(u,v) / self.max_u)
-            reward_chi = np.exp(-5.0 * reward_chi)
             # Action velocity gradual change reward
             reward_a0 = np.math.tanh(-self.c_action0 * np.power(action_dot0, 2)) * self.k_action0
             # Action angle gradual change reward
@@ -838,15 +832,14 @@ class UsvAsmcCaEnv(gym.Env):
             # Total non-collision reward
             reward = self.lambda_reward * reward_pf + (1 - self.lambda_reward) * reward_oa + reward_exists + reward_a0 + reward_a1
 
-            info['reward_ye'] = reward_ye
             info['reward_u'] = reward_u
-            info['reward_chi'] = reward_chi
             info['reward_a0'] = reward_a0
             info['reward_a1'] = reward_a1
             info['reward_coursedirection'] = reward_coursedirection
             info['reward_crosstrack'] = reward_crosstrack
             info['reward_oa'] = reward_oa
             info['reward_pf'] = reward_pf
+            info['reward_ye'] = ye
             #print(info)
 
             if (np.abs(reward) > 100000 and not collision):
