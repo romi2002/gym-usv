@@ -107,11 +107,11 @@ class UsvAsmcCaEnv(gym.Env):
 
         # Reward associated functions anf gains
         self.w_y = 0.5 # Crosstracking error
-        self.w_chi = 1.0 # Course direction error
+        self.w_chi = 2.0 # Course direction error
         self.k_ye = 0.5 # Crosstracking reward
 
-        self.k_uu = 8.0 # Velocity Reward
-        self.w_u = 2 # Velocity reward
+        self.k_uu = 2.0 # Velocity Reward
+        self.w_u = 1 # Velocity reward
 
         self.gamma_theta = 4.0  # 4.0
         self.gamma_x = 0.005  # 0.005
@@ -242,6 +242,7 @@ class UsvAsmcCaEnv(gym.Env):
         action[1] = self._denormalize_val(action[1], self.min_action1, self.max_action1)
 
         eta, upsilon, psi, tport, tstbd = self._compute_asmc(action)
+        u, v, r = upsilon
         self.position = np.array([eta[0], eta[1], psi])
 
         # Calculate action derivative for reward
@@ -256,7 +257,7 @@ class UsvAsmcCaEnv(gym.Env):
 
         beta = np.math.asin(upsilon[1] / (0.001 + np.sqrt(upsilon[0] * upsilon[0] + upsilon[1] * upsilon[1])))
         chi = psi + beta
-        chi = np.where(np.greater(np.abs(chi), np.pi), (np.sign(chi)) * (np.abs(chi) - 2 * np.pi), chi)
+        chi = self._wrap_angle(chi)
         # Compute angle between USV and path
         chi_ak = self._wrap_angle(chi - ak)
         psi_ak = self._wrap_angle(psi - ak)
@@ -353,8 +354,8 @@ class UsvAsmcCaEnv(gym.Env):
         # number of obstacles 
         self.num_obs = np.random.random_integers(low=15, high=25)
         # array of positions in x and y and radius
-        self.posx = np.random.normal(self.max_x / 3, 10, size=(self.num_obs, 1))
-        self.posy = np.random.normal(0.0, 5, size=(self.num_obs, 1))
+        self.posx = np.random.normal(15, 10, size=(self.num_obs, 1))
+        self.posy = np.random.uniform(-10, 10, size=(self.num_obs, 1))
         self.radius = np.random.normal(1.1, 0.65, size=(self.num_obs, 1))
 
         distance = np.hypot(self.posx - eta[0],
@@ -810,7 +811,7 @@ class UsvAsmcCaEnv(gym.Env):
         info = {}
         if (collision == False):
             # Velocity reward
-            reward_u = np.clip(np.exp(-self.k_uu * np.abs(u_ref - np.hypot(u, v))), -10, 10)
+            reward_u = np.clip(np.exp(-self.k_uu * np.abs(u_ref - np.hypot(u, v))), -10, 10) + 1
             # Action velocity gradual change reward
             reward_a0 = np.math.tanh(-self.c_action0 * np.power(action_dot0, 2)) * self.k_action0
             # Action angle gradual change reward
@@ -820,18 +821,19 @@ class UsvAsmcCaEnv(gym.Env):
             reward_coursedirection = self._coursedirection_reward(chi_ak, u, v)
             reward_crosstrack = self._crosstrack_reward(ye)
             #reward_pf = -1 + reward_coursedirection * reward_crosstrack
-            reward_pf = -1 + reward_coursedirection * reward_crosstrack + self.w_u * reward_u
+            reward_pf = -1 + reward_coursedirection * reward_crosstrack * reward_u
             # Obstacle avoidance reward
             numerator = np.sum(np.power(self.gamma_x * np.power(np.maximum(self.sensors[:,1], self.epsilon), 2), -1))
             denominator = np.sum(1 + np.abs(self.sensors[:, 0] * self.gamma_theta))
             reward_oa = -(np.log(numerator / denominator))
 
             #Exists reward
-            reward_exists = -self.lambda_reward * 1.25
+            reward_exists = -self.lambda_reward * 0.015
 
             # Total non-collision reward
             reward = self.lambda_reward * reward_pf + (1 - self.lambda_reward) * reward_oa + reward_exists + reward_a0 + reward_a1
 
+            info['reward_velocity'] = np.hypot(u, v)
             info['reward_u'] = reward_u
             info['reward_a0'] = reward_a0
             info['reward_a1'] = reward_a1
@@ -840,6 +842,9 @@ class UsvAsmcCaEnv(gym.Env):
             info['reward_oa'] = reward_oa
             info['reward_pf'] = reward_pf
             info['reward_ye'] = ye
+            info['reward_exists'] = reward_exists
+            info['reward_chi_ak'] = chi_ak
+            info['reward_u_ref'] = u_ref
             #print(info)
 
             if (np.abs(reward) > 100000 and not collision):
