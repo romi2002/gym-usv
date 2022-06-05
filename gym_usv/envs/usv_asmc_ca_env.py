@@ -123,8 +123,8 @@ class UsvAsmcCaEnv(gym.Env):
         # Action gradual change reward
         self.c_action0 = 1. / np.power((self.max_action0 / 2 - self.min_action0 / 2) / self.integral_step, 2)
         self.c_action1 = 1. / np.power((self.max_action1 / 2 - self.min_action1 / 2) / self.integral_step, 2)
-        self.k_action0 = 1.65
-        self.k_action1 = 1.95
+        self.k_action0 = 0
+        self.k_action1 = 0
 
         # Min and max values of the state
         self.min_u = -1.5
