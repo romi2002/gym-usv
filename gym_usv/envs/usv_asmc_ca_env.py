@@ -305,6 +305,7 @@ class UsvAsmcCaEnv(gym.Env):
         #Clamp ye and finish ep
         if abs(ye) > self.max_ye:
             ye = np.copysign(self.max_ye, ye)
+            reward = (1 - self.lambda_reward) * -2000
             done = True
 
         if x > self.max_x:
