@@ -80,7 +80,7 @@ class UsvAsmcCaEnv(gym.Env):
         self.lidar_resolution = self.sensor_span / self.sensor_num  # angle resolution in radians
         self.sector_num = 25  # number of sectors
         self.sector_size = np.int(self.sensor_num / self.sector_num)  # number of points per sector
-        self.sensor_max_range = 30.0  # m
+        self.sensor_max_range = 10.0  # m
         self.last_reward = 0
 
         # Boat radius
