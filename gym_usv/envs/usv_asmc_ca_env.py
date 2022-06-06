@@ -106,9 +106,9 @@ class UsvAsmcCaEnv(gym.Env):
         self.max_action1 = np.pi / 2
 
         # Reward associated functions anf gains
-        self.w_y = 0.5 # Crosstracking error
-        self.w_chi = 2.0 # Course direction error
-        self.k_ye = 0.5 # Crosstracking reward
+        self.w_chi = 2.60 # Course direction error
+        self.w_ye = 1.35
+        self.k_ye = 0.25 # Crosstracking reward
 
         self.k_uu = 2.0 # Velocity Reward
         self.w_u = 1 # Velocity reward
@@ -793,7 +793,7 @@ class UsvAsmcCaEnv(gym.Env):
             self.viewer = None
 
     def _crosstrack_reward(self, ye):
-        return np.exp(-self.k_ye * np.abs(ye)) + 1
+        return self.w_ye * np.exp(-self.k_ye * np.abs(ye)) + 1
 
     def _coursedirection_reward(self, chi_ak, u, v):
         reward = self.w_chi * np.cos(chi_ak) * (np.hypot(u, v) / self.max_action0) + 1
