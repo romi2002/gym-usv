@@ -793,10 +793,10 @@ class UsvAsmcCaEnv(gym.Env):
             self.viewer = None
 
     def _crosstrack_reward(self, ye):
-        return self.w_ye * np.exp(-self.k_ye * np.abs(ye)) + 1
+        return np.maximum(np.exp(-k_ye * np.power(ye,2)),  np.exp(-k_ye * np.abs(ye))) + 1
 
     def _coursedirection_reward(self, chi_ak, u, v):
-        reward = self.w_chi * np.cos(chi_ak) * (np.hypot(u, v) / self.max_action0) + 1
+        reward = -np.exp(1 * np.abs(chi_ak) - np.pi) + 1
         return reward
 
 
