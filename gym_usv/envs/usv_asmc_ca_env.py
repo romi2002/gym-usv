@@ -274,7 +274,7 @@ class UsvAsmcCaEnv(gym.Env):
         if distance.size == 0:
             collision = False
         else:
-            collision = np.min(distance) < 0
+            collision = np.asscalar(np.min(distance) < 0)
             done = collision
 
         # Compute sensor readings
