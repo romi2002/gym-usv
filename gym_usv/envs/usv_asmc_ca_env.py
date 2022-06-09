@@ -162,6 +162,7 @@ class UsvAsmcCaEnv(gym.Env):
         self.clock = None
         self.isopen = True
         self.total_reward = 0
+        self.reset()
 
     def _wrap_angle(self, angle):
         return (angle + np.pi) % (2 * np.pi) - np.pi
