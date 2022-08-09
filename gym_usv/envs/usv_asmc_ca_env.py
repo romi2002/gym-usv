@@ -13,7 +13,7 @@ from gym.utils import seeding
 import numpy as np
 from collections import defaultdict
 from functools import lru_cache
-
+from numba import njit
 
 class UsvAsmcCaEnv(gym.Env):
     metadata = {'render.modes': ['human', 'rgb_array'], 'render_fps': 60}
@@ -585,10 +585,18 @@ class UsvAsmcCaEnv(gym.Env):
         ned_obstacle_positions = self.compute_obstacle_positions(sensor_angles, obstacle_positions,
                                                                  boat_position)
 
-        for i in range(sensor_len):
-            if self.sensors[i][1] != self.sensor_max_range:
+        new_dist = self._compute_sensor_distances(self.sensor_max_range, self.num_obs, self.sensors, self.radius, ned_obstacle_positions, obs_order)
+        self.sensors[:,1] = new_dist
+
+    @staticmethod
+    @njit
+    def _compute_sensor_distances(sensor_max_range, num_obs, sensors, radius, ned_obstacle_positions, obs_order):
+        new_distances = np.zeros(len(sensors))
+        new_distances.fill(sensor_max_range)
+        for i in range(len(sensors)):
+            if sensors[i][1] != sensor_max_range:
                 continue
-            for j in range(self.num_obs):
+            for j in range(num_obs):
                 (obs_x, obs_y) = ned_obstacle_positions[i][j]
                 obs_idx = obs_order[j]
 
@@ -597,13 +605,15 @@ class UsvAsmcCaEnv(gym.Env):
                     # self.sensors[i][1] = self.sensor_max_range
                     continue
 
-                delta = (self.radius[obs_idx] * self.radius[obs_idx]) - (obs_y * obs_y)
+                delta = (radius[obs_idx] * radius[obs_idx]) - (obs_y * obs_y)
                 if delta < 0:
                     continue
 
                 new_distance = obs_x - np.sqrt(delta)
-                if new_distance < self.sensor_max_range:
-                    self.sensors[i][1] = min(self.sensors[i][1], new_distance)
+                if new_distance < sensor_max_range:
+                    new_distances[i] = min(new_distance[0], sensors[i][1])
+        return new_distances
+
 
     def _compute_feasability_pooling(self, sensors):
         sectors = np.full((self.sector_num), self.sensor_max_range)
@@ -887,12 +897,13 @@ class UsvAsmcCaEnv(gym.Env):
                       [np.math.sin(angle), np.math.cos(angle)]])
         return (J)
 
-    def compute_obstacle_positions(self, sensor_angles, obstacle_pos, boat_pos):
+    @staticmethod
+    def compute_obstacle_positions(sensor_angles, obstacle_pos, boat_pos):
         sensor_angle_len = len(sensor_angles)
 
         # Generate rotation matrix
         c, s = np.cos(sensor_angles), np.sin(sensor_angles)
-        rm = np.linalg.inv(np.array([c, -s, s, c]).T.reshape(len(sensor_angles), 2, 2))
+        rm = np.linalg.inv(np.array([c, -s, s, c]).T.reshape(sensor_angle_len, 2, 2))
 
         n = obstacle_pos - boat_pos
 
