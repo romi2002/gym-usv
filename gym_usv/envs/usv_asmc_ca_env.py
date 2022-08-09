@@ -153,10 +153,10 @@ class UsvAsmcCaEnv(gym.Env):
         self.max_action = np.array([1.0, 1.0])
 
         self.action_space = spaces.Box(low=self.min_action, high=self.max_action,
-                                       dtype=np.float64)
+                                       dtype=np.float32)
 
         self.observation_space = spaces.Box(low=self.low_state, high=self.high_state,
-                                            dtype=np.float64)
+                                            dtype=np.float32)
 
         self.screen = None
         self.clock = None
