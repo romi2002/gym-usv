@@ -220,7 +220,7 @@ class UsvAsmcCaEnv(gym.Env):
 
         return state
 
-    def step(self, action):
+    def step(self, action_in):
         '''
         @name: step
         @brief: ASMC and USV step, add obstacles and sensors.
@@ -239,8 +239,10 @@ class UsvAsmcCaEnv(gym.Env):
             3], state[4], state[5], state[6], state[7:7+self.sector_num - 1], state[7 + self.sector_num], state[7 + self.sector_num + 1]
         x, y, psi = position
 
-        action[0] = self._denormalize_val(action[0], self.min_action0, self.max_action0)
-        action[1] = self._denormalize_val(action[1], self.min_action1, self.max_action1)
+        action = [
+            self._denormalize_val(action_in[0], self.min_action0, self.max_action0),
+            self._denormalize_val(action_in[1], self.min_action1, self.max_action1)
+        ]
 
         eta, upsilon, psi, tport, tstbd = self._compute_asmc(action)
         u, v, r = upsilon
