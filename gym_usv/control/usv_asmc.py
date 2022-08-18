@@ -1,5 +1,6 @@
 import numpy as np
 
+
 class UsvAsmc():
     def __init__(self):
         # USV model coefficients
@@ -41,17 +42,18 @@ class UsvAsmc():
 
         self.so_filter = None
 
-        self.last = None
-        self.aux_vars = np.array([0,0,0])
+        self.last = np.zeros(9)
+        self.aux_vars = np.array([0, 0, 0])
         self.integral_step = 0.01
 
-    def compute_asmc(self, state, position, action, last_values, so_filter, aux_vars):
-        x_dot_last, y_dot_last, psi_dot_last, u_dot_last, v_dot_last, r_dot_last, e_u_last, Ka_dot_u_last, Ka_dot_psi_last = last_values
-        psi_d_last, o_dot_dot_last, o_dot_last, o_last, o, o_dot, o_dot_dot = so_filter
+    def compute(self, action, state, position):
+        x_dot_last, y_dot_last, psi_dot_last, u_dot_last, v_dot_last, r_dot_last, e_u_last, ka_dot_u_last, ka_dot_psi_last = self.last
+        psi_d_last, o_dot_dot_last, o_dot_last, o_last, o, o_dot, o_dot_dot = self.so_filter
 
-        u, v, r, ye, ye_dot, chi_ak, u_ref= state[0], state[1], state[2], state[3], state[4], state[5], state[6]
+        u, v, r, ye, ye_dot, chi_ak, u_ref = state[0], state[1], state[2], state[3], state[4], state[5], state[6]
+
         x, y, psi = position
-        e_u_int, Ka_u, Ka_psi = self.aux_vars
+        e_u_int, ka_u, ka_psi = self.aux_vars
 
         # Create model related vectors
         eta = np.array([x, y, psi])
@@ -59,19 +61,22 @@ class UsvAsmc():
         eta_dot_last = np.array([x_dot_last, y_dot_last, psi_dot_last])
         upsilon_dot_last = np.array([u_dot_last, v_dot_last, r_dot_last])
 
-        for i in range(10):
+        for _ in range(10):
             beta = np.math.asin(upsilon[1] / (0.001 + np.hypot(upsilon[0], upsilon[1])))
             chi = psi + beta
+            # chi = np.where(np.greater(np.abs(chi), np.pi), (np.sign(chi)) * (np.abs(chi) - 2 * np.pi), chi)
 
             # Compute the desired heading
             psi_d = chi + action[1]
+            # psi_d = ak + action[1]
+            # psi_d = np.where(np.greater(np.abs(psi_d), np.pi), (np.sign(psi_d)) * (np.abs(psi_d) - 2 * np.pi), psi_d)
 
             # Second order filter to compute desired yaw rate
             r_d = (psi_d - psi_d_last) / self.integral_step
             psi_d_last = psi_d
             o_dot_dot = (((r_d - o_last) * self.f1) - (self.f3 * o_dot_last)) * self.f2
-            o_dot = (self.integral_step) * (o_dot_dot + o_dot_dot_last) / 2 + o_dot
-            o = (self.integral_step) * (o_dot + o_dot_last) / 2 + o
+            o_dot = self.integral_step * (o_dot_dot + o_dot_dot_last) / 2 + o_dot
+            o = self.integral_step * (o_dot + o_dot_last) / 2 + o
             r_d = o
             o_last = o
             o_dot_last = o_dot
@@ -80,7 +85,7 @@ class UsvAsmc():
             # Compute variable hydrodynamic coefficients
             Xu = -25
             Xuu = 0
-            if (abs(upsilon[0]) > 1.2):
+            if abs(upsilon[0]) > 1.2:
                 Xu = 64.55
                 Xuu = -70.92
 
@@ -118,41 +123,41 @@ class UsvAsmc():
             sigma_psi = e_psi_dot + self.lambda_psi * e_psi
 
             # Compute ASMC gain derivatives
-            Ka_dot_u = np.where(np.greater(Ka_u, self.kmin_u), self.k_u * np.sign(np.abs(sigma_u) - self.mu_u),
+            ka_dot_u = np.where(np.greater(ka_u, self.kmin_u), self.k_u * np.sign(np.abs(sigma_u) - self.mu_u),
                                 self.kmin_u)
-            Ka_dot_psi = np.where(np.greater(Ka_psi, self.kmin_psi),
+            ka_dot_psi = np.where(np.greater(ka_psi, self.kmin_psi),
                                   self.k_psi * np.sign(np.abs(sigma_psi) - self.mu_psi), self.kmin_psi)
 
             # Compute gains
-            Ka_u = self.integral_step * (Ka_dot_u + Ka_dot_u_last) / 2 + Ka_u
-            Ka_dot_u_last = Ka_dot_u
+            ka_u = self.integral_step * (ka_dot_u + ka_dot_u_last) / 2 + ka_u
+            ka_dot_u_last = ka_dot_u
 
-            Ka_psi = self.integral_step * (Ka_dot_psi + Ka_dot_psi_last) / 2 + Ka_psi
-            Ka_dot_psi_last = Ka_dot_psi
+            ka_psi = self.integral_step * (ka_dot_psi + ka_dot_psi_last) / 2 + ka_psi
+            ka_dot_psi_last = ka_dot_psi
 
             # Compute ASMC for speed and heading
-            ua_u = (-Ka_u * np.power(np.abs(sigma_u), 0.5) * np.sign(sigma_u)) - (self.k2_u * sigma_u)
-            ua_psi = (-Ka_psi * np.power(np.abs(sigma_psi), 0.5) * np.sign(sigma_psi)) - (self.k2_psi * sigma_psi)
+            ua_u = (-ka_u * np.power(np.abs(sigma_u), 0.5) * np.sign(sigma_u)) - (self.k2_u * sigma_u)
+            ua_psi = (-ka_psi * np.power(np.abs(sigma_psi), 0.5) * np.sign(sigma_psi)) - (self.k2_psi * sigma_psi)
 
             # Compute control inputs for speed and heading
-            Tx = ((self.lambda_u * e_u) - f_u - ua_u) / g_u
-            Tz = ((self.lambda_psi * e_psi) - f_psi - ua_psi) / g_psi
+            tx = ((self.lambda_u * e_u) - f_u - ua_u) / g_u
+            tz = ((self.lambda_psi * e_psi) - f_psi - ua_psi) / g_psi
 
             # Compute both thrusters and saturate their values
-            Tport = (Tx / 2) + (Tz / self.B)
-            Tstbd = (Tx / (2 * self.c)) - (Tz / (self.B * self.c))
+            tport = (tx / 2) + (tz / self.B)
+            tstbd = (tx / (2 * self.c)) - (tz / (self.B * self.c))
 
-            Tport = np.where(np.greater(Tport, 36.5), 36.5, Tport)
-            Tport = np.where(np.less(Tport, -30), -30, Tport)
-            Tstbd = np.where(np.greater(Tstbd, 36.5), 36.5, Tstbd)
-            Tstbd = np.where(np.less(Tstbd, -30), -30, Tstbd)
+            tport = np.where(np.greater(tport, 36.5), 36.5, tport)
+            tport = np.where(np.less(tport, -30), -30, tport)
+            tstbd = np.where(np.greater(tstbd, 36.5), 36.5, tstbd)
+            tstbd = np.where(np.less(tstbd, -30), -30, tstbd)
 
             # Compute USV model matrices
             M = np.array([[self.m - self.X_u_dot, 0, 0],
                           [0, self.m - self.Y_v_dot, 0 - self.Y_r_dot],
                           [0, 0 - self.N_v_dot, self.Iz - self.N_r_dot]])
 
-            T = np.array([Tport + self.c * Tstbd, 0, 0.5 * self.B * (Tport - self.c * Tstbd)])
+            T = np.array([tport + self.c * tstbd, 0, 0.5 * self.B * (tport - self.c * tstbd)])
 
             CRB = np.array([[0, 0, 0 - self.m * upsilon[1]],
                             [0, 0, self.m * upsilon[0]],
@@ -180,8 +185,8 @@ class UsvAsmc():
             # Compute acceleration and velocity in body
             upsilon_dot = np.matmul(np.linalg.inv(
                 M), (T - np.matmul(C, upsilon) - np.matmul(D, upsilon)))
-            upsilon = (self.integral_step) * (upsilon_dot +
-                                              upsilon_dot_last) / 2 + upsilon  # integral
+            upsilon = self.integral_step * (upsilon_dot +
+                                            upsilon_dot_last) / 2 + upsilon  # integral
             upsilon_dot_last = upsilon_dot
 
             # Rotation matrix
@@ -191,16 +196,15 @@ class UsvAsmc():
 
             # Compute NED position
             eta_dot = np.matmul(J, upsilon)  # transformation into local reference frame
-            eta = (self.integral_step) * (eta_dot + eta_dot_last) / 2 + eta  # integral
+            eta = self.integral_step * (eta_dot + eta_dot_last) / 2 + eta  # integral
             eta_dot_last = eta_dot
 
             psi = eta[2]
 
-        self.last = np.array(
-            [eta_dot_last[0], eta_dot_last[1], eta_dot_last[2], upsilon_dot_last[0], upsilon_dot_last[1],
-             upsilon_dot_last[2], e_u_last, Ka_dot_u_last, Ka_dot_psi_last])
+            self.last = np.array(
+                [eta_dot_last[0], eta_dot_last[1], eta_dot_last[2], upsilon_dot_last[0], upsilon_dot_last[1],
+                 upsilon_dot_last[2], e_u_last, ka_dot_u_last, ka_dot_psi_last])
 
-        self.so_filter = np.array([psi_d_last, o_dot_dot_last, o_dot_last, o_last, o, o_dot, o_dot_dot])
-        self.aux_vars = np.array([e_u_int, Ka_u, Ka_psi])
-
-        return eta, upsilon, psi
+            self.so_filter = np.array([psi_d_last, o_dot_dot_last, o_dot_last, o_last, o, o_dot, o_dot_dot])
+            self.aux_vars = np.array([e_u_int, ka_u, ka_psi])
+            return eta, upsilon, psi

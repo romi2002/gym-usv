@@ -365,10 +365,6 @@ class UsvAsmcCaEnv(gym.Env):
         state, _, _, _ = self.step([0,0])
         return state
 
-    def _compute_asmc(self, action):
-
-
-
     def _compute_sensor_measurments(self, distance):
         x = self.position[0]
         y = self.position[1]
