@@ -3,6 +3,7 @@
   <component name="ProjectModuleManager">
     <modules>
       <module fileurl="file://$PROJECT_DIR$/.idea/gym-usv.iml" filepath="$PROJECT_DIR$/.idea/gym-usv.iml" />
+      <module fileurl="file://$PROJECT_DIR$/../rllib_utils/.idea/rllib.iml" filepath="$PROJECT_DIR$/../rllib_utils/.idea/rllib.iml" />
     </modules>
   </component>
 </project>

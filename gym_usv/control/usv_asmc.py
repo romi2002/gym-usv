@@ -1,5 +1,6 @@
 import numpy as np
 
+
 class UsvAsmc():
     def __init__(self):
         # USV model coefficients
@@ -164,10 +165,11 @@ class UsvAsmc():
                             [0, 0, self.m * velocity[0]],
                             [self.m * velocity[1], 0 - self.m * velocity[0], 0]])
 
-            CA = np.array([[0, 0, 2 * ((self.Y_v_dot * velocity[1]) + ((self.Y_r_dot + self.N_v_dot) / 2) * velocity[2])],
-                           [0, 0, 0 - self.X_u_dot * self.m * velocity[0]],
-                           [2 * (((0 - self.Y_v_dot) * velocity[1]) - ((self.Y_r_dot + self.N_v_dot) / 2) * velocity[2]),
-                            self.X_u_dot * self.m * velocity[0], 0]])
+            CA = np.array(
+                [[0, 0, 2 * ((self.Y_v_dot * velocity[1]) + ((self.Y_r_dot + self.N_v_dot) / 2) * velocity[2])],
+                 [0, 0, 0 - self.X_u_dot * self.m * velocity[0]],
+                 [2 * (((0 - self.Y_v_dot) * velocity[1]) - ((self.Y_r_dot + self.N_v_dot) / 2) * velocity[2]),
+                  self.X_u_dot * self.m * velocity[0], 0]])
 
             C = CRB + CA
 
@@ -187,7 +189,7 @@ class UsvAsmc():
             upsilon_dot = np.matmul(np.linalg.inv(
                 M), (T - np.matmul(C, velocity) - np.matmul(D, velocity)))
             velocity = self.integral_step * (upsilon_dot +
-                                            upsilon_dot_last) / 2 + velocity  # integral
+                                             upsilon_dot_last) / 2 + velocity  # integral
             upsilon_dot_last = upsilon_dot
 
             # Rotation matrix

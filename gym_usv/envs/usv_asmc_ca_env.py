@@ -14,6 +14,7 @@ import numpy as np
 from collections import defaultdict
 from functools import lru_cache
 from numba import njit
+from gym_usv.control import UsvAsmc
 
 class UsvAsmcCaEnv(gym.Env):
     metadata = {'render.modes': ['human', 'rgb_array'], 'render_fps': 60}
@@ -127,6 +128,7 @@ class UsvAsmcCaEnv(gym.Env):
         self.clock = None
         self.isopen = True
         self.total_reward = 0
+        self.asmc = UsvAsmc()
         self.reset()
 
     def _wrap_angle(self, angle):
@@ -209,9 +211,10 @@ class UsvAsmcCaEnv(gym.Env):
             self._denormalize_val(action_in[1], self.min_action1, self.max_action1)
         ]
 
-        eta, upsilon, psi, tport, tstbd = self._compute_asmc(action)
+        eta, upsilon = self.asmc.compute(action, np.array([x,y,psi]), np.array([u,v,r]))
+        psi = eta[2]
         u, v, r = upsilon
-        self.position = np.array([eta[0], eta[1], psi])
+        self.position = eta
 
         # Calculate action derivative for reward
         action_dot0 = (action[0] - action0_last) / self.integral_step
@@ -287,7 +290,7 @@ class UsvAsmcCaEnv(gym.Env):
         # Reshape state
         state = self.state.reshape(self.observation_space.shape[0]).astype(np.float32)
 
-        info.update({"position": position, "sensors": self.sensors, "sectors": sectors, "thrusters": (tport, tstbd)})
+        info.update({"position": position, "sensors": self.sensors, "sectors": sectors})
         return state, reward, done, info
 
     def reset(self):
@@ -330,6 +333,8 @@ class UsvAsmcCaEnv(gym.Env):
         distance = np.hypot(self.posx - eta[0],
                             self.posy - eta[1]) - self.radius - self.boat_radius - (self.safety_radius + 0.35)
         distance = distance.reshape(-1)
+
+        self.asmc = UsvAsmc()
 
         # Delete all obstacles within boat radius
         elems_to_delete = np.flatnonzero(distance < 0)
