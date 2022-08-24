@@ -252,7 +252,7 @@ class UsvAsmcCaEnv(gym.Env):
         self._compute_sensor_measurments(distance)
 
         # Feasability pooling: compute sectors
-        sectors = self._compute_feasability_pooling(self.sensors)
+        sectors = self._compute_feasability_pooling(self.sector_num, self.sector_size, self.sensor_max_range, self.lidar_resolution, self.boat_radius, self.sensors)
         self.sectors = sectors
         sectors = np.clip((1 - sectors / self.sensor_max_range), -1, 1)
 
@@ -420,26 +420,27 @@ class UsvAsmcCaEnv(gym.Env):
                     new_distances[i] = min(new_distance[0], sensors[i][1])
         return new_distances
 
-
-    def _compute_feasability_pooling(self, sensors):
-        sectors = np.full((self.sector_num), self.sensor_max_range)
-        for i in range(self.sector_num):  # loop through sectors
-            x = sensors[i * self.sector_size:(i + 1) * self.sector_size, 1]
+    @staticmethod
+    @njit
+    def _compute_feasability_pooling(sector_num, sector_size, sensor_max_range, lidar_resolution, boat_radius, sensors):
+        sectors = np.full(sector_num, sensor_max_range)
+        for i in range(sector_num):  # loop through sectors
+            x = sensors[i * sector_size:(i + 1) * sector_size, 1]
             x_ordered = np.argsort(x)
-            for j in range(self.sector_size):  # loop through
+            for j in range(sector_size):  # loop through
                 x_index = x_ordered[j]
-                arc_length = self.lidar_resolution * x[x_index]
+                arc_length = lidar_resolution * x[x_index]
                 opening_width = arc_length / 2
                 opening_found = False
-                for k in range(self.sector_size):
+                for k in range(sector_size):
                     if x[k] > x[x_index]:
-                        opening_width = opening_width + arc_length
-                        if opening_width > (2 * (self.boat_radius + self.safety_radius)):
+                        opening_width += arc_length
+                        if opening_width > (2 * boat_radius):
                             opening_found = True
                             break
                     else:
-                        opening_width = opening_width + arc_length / 2
-                        if opening_width > (self.boat_radius + self.safety_radius):
+                        opening_width += arc_length / 2
+                        if opening_width > boat_radius:
                             opening_found = True
                             break
                         opening_width = 0
