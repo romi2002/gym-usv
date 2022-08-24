@@ -66,15 +66,15 @@ class UsvAsmcCaEnv(gym.Env):
         # Min and max actions
         # velocity 
         self.min_action0 = 0.25
-        self.max_action0 = 1.0
+        self.max_action0 = 5.0
         # angle (change to -pi and pi if necessary)
-        self.min_action1 = -np.pi / 2
-        self.max_action1 = np.pi / 2
+        self.min_action1 = -np.pi
+        self.max_action1 = np.pi
 
         # Reward associated functions anf gains
         self.w_chi = 2.60 # Course direction error
         self.w_ye = 1.35
-        self.k_ye = 0.25 # Crosstracking reward
+        self.k_ye = 4 # Crosstracking reward
 
         self.k_uu = 2.0 # Velocity Reward
         self.w_u = 1 # Velocity reward
@@ -89,8 +89,8 @@ class UsvAsmcCaEnv(gym.Env):
         # Action gradual change reward
         self.c_action0 = 1. / np.power((self.max_action0 / 2 - self.min_action0 / 2) / self.integral_step, 2)
         self.c_action1 = 1. / np.power((self.max_action1 / 2 - self.min_action1 / 2) / self.integral_step, 2)
-        self.k_action0 = 0
-        self.k_action1 = 0
+        self.k_action0 = 0.25
+        self.k_action1 = 0.1
 
         # Min and max values of the state
         self.min_u = -1.5
@@ -105,8 +105,8 @@ class UsvAsmcCaEnv(gym.Env):
         self.max_ye_dot = 1.5
         self.min_chi_ak = -np.pi
         self.max_chi_ak = np.pi
-        self.min_u_ref = 0.4
-        self.max_u_ref = 1.4
+        self.min_u_ref = 1.0
+        self.max_u_ref = 2.5
         self.min_sectors = np.zeros((self.sector_num))
         self.max_sectors = np.full((self.sector_num), 1)
         self.sectors = np.zeros((self.sector_num))
@@ -125,6 +125,7 @@ class UsvAsmcCaEnv(gym.Env):
                                             dtype=np.float32)
 
         self.screen = None
+        self.font = None
         self.clock = None
         self.isopen = True
         self.total_reward = 0
@@ -154,7 +155,7 @@ class UsvAsmcCaEnv(gym.Env):
         ye = self._denormalize_val(ye, self.min_ye, self.max_ye)
         ye_dot = self._denormalize_val(ye_dot, self.min_ye_dot, self.max_ye_dot)
         chi_ak = self._denormalize_val(chi_ak, self.min_chi_ak, self.max_chi_ak)
-        u_ref = self._denormalize_val(u_ref, self.min_u, self.max_u)
+        u_ref = self._denormalize_val(u_ref, self.min_u_ref, self.max_u_ref)
 
         # sectors are ignored
         action0_last = self._denormalize_val(action0_last, self.min_action0, self.max_action0)
@@ -176,7 +177,7 @@ class UsvAsmcCaEnv(gym.Env):
         ye = self._normalize_val(ye, self.min_ye, self.max_ye)
         ye_dot = self._normalize_val(ye_dot, self.min_ye_dot, self.max_ye_dot)
         chi_ak = self._normalize_val(chi_ak, self.min_chi_ak, self.max_chi_ak)
-        u_ref = self._normalize_val(u_ref, self.min_u, self.max_u)
+        u_ref = self._normalize_val(u_ref, self.min_u_ref, self.max_u_ref)
 
         # sectors are ignored
         action0_last = self._normalize_val(action0_last, self.min_action0, self.max_action0)
@@ -249,10 +250,19 @@ class UsvAsmcCaEnv(gym.Env):
             done = collision
 
         # Compute sensor readings
-        self._compute_sensor_measurments(distance)
+        self.sensors = self._compute_sensor_measurments(
+            position,
+            self.sensor_num,
+            self.sensor_max_range,
+            self.radius,
+            self.lidar_resolution,
+            self.posx,
+            self.posy,
+            self.num_obs,
+            distance)
 
         # Feasability pooling: compute sectors
-        sectors = self._compute_feasability_pooling(self.sector_num, self.sector_size, self.sensor_max_range, self.lidar_resolution, self.boat_radius, self.sensors)
+        sectors = self._compute_feasability_pooling(self.sector_num, self.sector_size, self.sensor_max_range, self.lidar_resolution, self.boat_radius + self.safety_radius, self.sensors)
         self.sectors = sectors
         sectors = np.clip((1 - sectors / self.sensor_max_range), -1, 1)
 
@@ -370,35 +380,35 @@ class UsvAsmcCaEnv(gym.Env):
         state, _, _, _ = self.step([0,0])
         return state
 
-    def _compute_sensor_measurments(self, distance):
-        x = self.position[0]
-        y = self.position[1]
-        psi = self.position[2]
+    @staticmethod
+    def _compute_sensor_measurments(position, sensor_count, sensor_max_range, radius, lidar_resolution, posx, posy, num_obs, distance):
+        x = position[0]
+        y = position[1]
+        psi = position[2]
 
         obs_order = np.argsort(distance)  # order obstacles in closest to furthest
 
-        sensor_len = len(self.sensors)
-        self.sensors = np.vstack((-np.pi * 2 / 3 + np.arange(sensor_len) * self.lidar_resolution,
-                                  np.ones(sensor_len) * self.sensor_max_range)).T
+        sensors = np.vstack((-np.pi * 2 / 3 + np.arange(sensor_count) * lidar_resolution,
+                                  np.ones(sensor_count) * sensor_max_range)).T
 
-        sensor_angles = self.sensors[:, 0] + psi
+        sensor_angles = sensors[:, 0] + psi
         #sensor_angles = np.where(np.greater(np.abs(sensor_angles), np.pi),
         #                         np.sign(sensor_angles) * (np.abs(sensor_angles) - 2 * np.pi), sensor_angles)
 
-        obstacle_positions = np.hstack((self.posx[:], self.posy[:]))[obs_order]
+        obstacle_positions = np.hstack((posx[:], posy[:]))[obs_order]
 
         boat_position = np.array([x,y])
-        ned_obstacle_positions = self.compute_obstacle_positions(sensor_angles, obstacle_positions,
+        ned_obstacle_positions = UsvAsmcCaEnv.compute_obstacle_positions(sensor_angles, obstacle_positions,
                                                                  boat_position)
 
-        new_dist = self._compute_sensor_distances(self.sensor_max_range, self.num_obs, self.sensors, self.radius, ned_obstacle_positions, obs_order)
-        self.sensors[:,1] = new_dist
+        new_dist = UsvAsmcCaEnv._compute_sensor_distances(sensor_max_range, num_obs, sensors, radius, ned_obstacle_positions, obs_order)
+        sensors[:,1] = new_dist
+        return sensors
 
     @staticmethod
     @njit
     def _compute_sensor_distances(sensor_max_range, num_obs, sensors, radius, ned_obstacle_positions, obs_order):
-        new_distances = np.zeros(len(sensors))
-        new_distances.fill(sensor_max_range)
+        new_distances = np.full(len(sensors), sensor_max_range)
         for i in range(len(sensors)):
             if sensors[i][1] != sensor_max_range:
                 continue
@@ -546,6 +556,8 @@ class UsvAsmcCaEnv(gym.Env):
             self.screen = pygame.display.set_mode((screen_width, screen_height))
         if self.clock is None:
             self.clock = pygame.time.Clock()
+        if self.font is None:
+            self.font = pygame.font.SysFont(None, 48)
 
         self.surf = pygame.Surface((screen_width, screen_height))
         self.surf.fill((255, 255, 255))
@@ -573,8 +585,10 @@ class UsvAsmcCaEnv(gym.Env):
         safety_radius = (self.boat_radius + self.safety_radius) * scale
         safety = ((y - self.min_y) * scale, (x - self.min_x) * scale)
         pygame.draw.circle(self.surf, (255,0,0), safety, safety_radius, width=3)
+        text_img = self.font.render("Lambda: " + str(round(self.lambda_reward, 4)), True, (0,0,0))
 
         self.surf = pygame.transform.flip(self.surf, False, True)
+        self.surf.blit(text_img, (20,20))
 
         if mode == "human":
             self.screen.blit(self.surf, (0,0))
@@ -611,7 +625,7 @@ class UsvAsmcCaEnv(gym.Env):
             self.viewer = None
 
     def _crosstrack_reward(self, ye):
-        return np.maximum(np.exp(-self.k_ye * np.power(ye,2)),  np.exp(-self.k_ye * np.abs(ye))) + 1
+        return np.maximum(np.exp(-self.k_ye * np.power(ye,2)),  np.exp(-self.k_ye * np.abs(ye)))
 
     def _coursedirection_reward(self, chi_ak, u, v):
         reward = -np.exp(1 * np.abs(chi_ak) - np.pi) + 1
@@ -630,7 +644,7 @@ class UsvAsmcCaEnv(gym.Env):
         info = {}
         if (collision == False):
             # Velocity reward
-            reward_u = np.clip(np.exp(-self.k_uu * np.abs(u_ref - np.hypot(u, v))), -10, 10) + 1
+            reward_u = np.clip(np.exp(-self.k_uu * np.abs(u_ref - np.hypot(u, v))) * 2.0, -10, 10)
             # Action velocity gradual change reward
             reward_a0 = np.math.tanh(-self.c_action0 * np.power(action_dot0, 2)) * self.k_action0
             # Action angle gradual change reward
@@ -647,7 +661,7 @@ class UsvAsmcCaEnv(gym.Env):
             reward_oa = -(np.log(numerator / denominator))
 
             #Exists reward
-            reward_exists = -self.lambda_reward * 0.015
+            reward_exists = -self.lambda_reward
 
             # Total non-collision reward
             reward = self.lambda_reward * reward_pf + (1 - self.lambda_reward) * reward_oa + reward_exists + reward_a0 + reward_a1
