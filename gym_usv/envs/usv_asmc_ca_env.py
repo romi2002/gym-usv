@@ -74,7 +74,7 @@ class UsvAsmcCaEnv(gym.Env):
         # Reward associated functions anf gains
         self.w_chi = 2.60 # Course direction error
         self.w_ye = 1.35
-        self.k_ye = 4 # Crosstracking reward
+        self.k_ye = 0.1 # Crosstracking reward
 
         self.k_uu = 2.0 # Velocity Reward
         self.w_u = 1 # Velocity reward
@@ -277,11 +277,9 @@ class UsvAsmcCaEnv(gym.Env):
         xe_dot, ye_dot = self.body_to_path(upsilon[0], upsilon[1], psi_ak)
 
         # If USV collides, abort
-        # if collision == True:
-        #
-        # else:
-        #     done = False
-
+        if collision == True:
+            done = True
+            reward = -2000
 
         #Clamp ye and finish ep
         if abs(ye) > self.max_ye:
@@ -339,6 +337,7 @@ class UsvAsmcCaEnv(gym.Env):
         self.posx = np.random.normal(15, 10, size=(self.num_obs, 1))
         self.posy = np.random.uniform(-10, 10, size=(self.num_obs, 1))
         self.radius = np.random.normal(1.1, 0.65, size=(self.num_obs, 1))
+        self.total_reward = 0
 
         distance = np.hypot(self.posx - eta[0],
                             self.posy - eta[1]) - self.radius - self.boat_radius - (self.safety_radius + 0.35)
@@ -375,7 +374,7 @@ class UsvAsmcCaEnv(gym.Env):
 
         self.position = np.array([eta[0], eta[1], psi])
 
-        self.lambda_reward = np.random.beta(5, 1.65)
+        self.lambda_reward = np.random.beta(25, 1.65)
 
         state, _, _, _ = self.step([0,0])
         return state
@@ -585,10 +584,12 @@ class UsvAsmcCaEnv(gym.Env):
         safety_radius = (self.boat_radius + self.safety_radius) * scale
         safety = ((y - self.min_y) * scale, (x - self.min_x) * scale)
         pygame.draw.circle(self.surf, (255,0,0), safety, safety_radius, width=3)
-        text_img = self.font.render("Lambda: " + str(round(self.lambda_reward, 4)), True, (0,0,0))
+        lambda_text_img = self.font.render("Lambda: " + str(round(self.lambda_reward, 4)), True, (0,0,0))
+        reward_text_img = self.font.render("Reward: " + str(round(self.last_reward, 4)), True, (0,0,0))
 
         self.surf = pygame.transform.flip(self.surf, False, True)
-        self.surf.blit(text_img, (20,20))
+        self.surf.blit(lambda_text_img, (20,20))
+        self.surf.blit(reward_text_img, (20,50))
 
         if mode == "human":
             self.screen.blit(self.surf, (0,0))
@@ -625,12 +626,10 @@ class UsvAsmcCaEnv(gym.Env):
             self.viewer = None
 
     def _crosstrack_reward(self, ye):
-        return np.maximum(np.exp(-self.k_ye * np.power(ye,2)),  np.exp(-self.k_ye * np.abs(ye)))
+        return np.maximum(np.exp(-self.k_ye * np.power(ye,2)),  np.exp(-self.k_ye * np.abs(ye))) + 1
 
     def _coursedirection_reward(self, chi_ak, u, v):
-        reward = -np.exp(1 * np.abs(chi_ak) - np.pi) + 1
-        return reward
-
+        return (np.exp(0.5 * np.cos(chi_ak) - np.pi)) *(1/0.07) + 1
 
     def _oa_reward(self, sensor):
         gammainv = (1 + np.abs(sensor[0] * self.gamma_theta))
@@ -645,16 +644,17 @@ class UsvAsmcCaEnv(gym.Env):
         if (collision == False):
             # Velocity reward
             reward_u = np.clip(np.exp(-self.k_uu * np.abs(u_ref - np.hypot(u, v))) * 2.0, -10, 10)
+            reward_u = 0
             # Action velocity gradual change reward
-            reward_a0 = np.math.tanh(-self.c_action0 * np.power(action_dot0, 2)) * self.k_action0
+            reward_a0 = np.math.tanh(-self.c_action0 * np.power(action_dot0, 2)) * self.k_action0 * 0
             # Action angle gradual change reward
-            reward_a1 = np.math.tanh(-self.c_action1 * np.power(action_dot1, 2)) * self.k_action1
+            reward_a1 = np.math.tanh(-self.c_action1 * np.power(action_dot1, 2)) * self.k_action1 * 0
 
             # Path following reward
             reward_coursedirection = self._coursedirection_reward(chi_ak, u, v)
             reward_crosstrack = self._crosstrack_reward(ye)
-            #reward_pf = -1 + reward_coursedirection * reward_crosstrack
-            reward_pf = -1 + reward_coursedirection * reward_crosstrack * reward_u
+            reward_pf = -2 + reward_coursedirection * reward_crosstrack
+            #reward_pf = -1 + reward_coursedirection * reward_crosstrack + reward_u
             # Obstacle avoidance reward
             numerator = np.sum(np.power(self.gamma_x * np.power(np.maximum(self.sensors[:,1], self.epsilon), 2), -1))
             denominator = np.sum(1 + np.abs(self.sensors[:, 0] * self.gamma_theta))
@@ -665,7 +665,6 @@ class UsvAsmcCaEnv(gym.Env):
 
             # Total non-collision reward
             reward = self.lambda_reward * reward_pf + (1 - self.lambda_reward) * reward_oa + reward_exists + reward_a0 + reward_a1
-
             info['reward_velocity'] = np.hypot(u, v)
             info['reward_u'] = reward_u
             info['reward_a0'] = reward_a0
@@ -689,6 +688,7 @@ class UsvAsmcCaEnv(gym.Env):
 
         #print(reward)
         info['reward'] = reward
+        self.last_reward = reward
         return reward, info
 
     def body_to_path(self, x2, y2, alpha):
