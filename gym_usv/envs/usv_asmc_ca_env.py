@@ -15,7 +15,7 @@ from collections import defaultdict
 from functools import lru_cache
 from numba import njit
 from gym_usv.control import UsvAsmc
-from gym_usv.utils import generate_path, place_obstacles, plot_path
+from gym_usv.utils import generate_path, place_obstacles, simplified_lookahead
 
 
 class UsvAsmcCaEnv(gym.Env):
@@ -124,6 +124,8 @@ class UsvAsmcCaEnv(gym.Env):
         self.observation_space = spaces.Box(low=self.low_state, high=self.high_state,
                                             dtype=np.float32)
 
+        self.lookahead_distance = 5
+
         self.screen = None
         self.font = None
         self.clock = None
@@ -227,7 +229,11 @@ class UsvAsmcCaEnv(gym.Env):
         action0_last = action[0]
         action1_last = action[1]
 
-        x_0, y_0, u_ref, ak, x_d, y_d = self.target
+        # Update path target with lookahead
+        x_0, y_0 = position[0], position[1]
+        x_d, y_d = simplified_lookahead(self.path, x_0, self.lookahead_distance)
+        self.target = [x_0, y_0, x_d, y_d, u_ref]
+
         ak = np.math.atan2(y_d - y_0, x_d - x_0)
         ak = np.float32(ak)
 
@@ -338,11 +344,9 @@ class UsvAsmcCaEnv(gym.Env):
         # number of obstacles 
         self.num_obs = np.random.randint(low=25, high=50)
 
-        start_point = np.zeros(2)
         self.path, self.waypoints = generate_path(np.array([x_0, y_0]), np.random.randint(8, 15))
         obstacles = place_obstacles(self.path, self.waypoints, self.num_obs)
         self.num_obs = len(obstacles) # Update after removing obstacles
-        plot_path(self.path, self.waypoints, obstacles)
         self.posx = obstacles[:, 0]
         self.posy = obstacles[:, 1]
         self.radius = obstacles[:, 2]
@@ -379,7 +383,7 @@ class UsvAsmcCaEnv(gym.Env):
         self.last = np.array(
             [eta_dot_last[0], eta_dot_last[1], eta_dot_last[2], upsilon_dot_last[0], upsilon_dot_last[1],
              upsilon_dot_last[2], e_u_last, Ka_dot_u_last, Ka_dot_psi_last])
-        self.target = np.array([x_0, y_0, u_ref, ak, x_d, y_d])
+        self.target = np.array([x_0, y_0, x_d, y_d, u_ref])
         self.so_filter = np.array([psi_d_last, o_dot_dot_last, o_dot_last, o_last, o, o_dot, o_dot_dot])
 
         self.position = np.array([eta[0], eta[1], psi])
@@ -543,7 +547,7 @@ class UsvAsmcCaEnv(gym.Env):
         path_y = path(path_x)
         pygame.draw.lines(self.surf, (0, 255, 0), False,
                           [tuple(p) for p in np.vstack([(path_y - self.min_y) * scale, (path_x - self.min_x) * scale]).T], width=2)
-
+    ## TODO Add screen space transformation functions
     def render(self, mode='human', info=None, draw_obstacles=True):
         screen_width = 400
         screen_height = 800
@@ -587,7 +591,11 @@ class UsvAsmcCaEnv(gym.Env):
 
         self._draw_path(scale, self.path)
 
-        #Draw safety radius
+        # Draw target point
+        _, _, x_t, y_t, _ = self.target
+        pygame.draw.circle(self.surf, (100, 0, 255), ((y_t - self.min_y) * scale, (x_t - self.min_x) * scale), radius=5)
+
+        # Draw safety radius
         safety_radius = (self.boat_radius + self.safety_radius) * scale
         safety = ((y - self.min_y) * scale, (x - self.min_x) * scale)
         pygame.draw.circle(self.surf, (255,0,0), safety, safety_radius, width=3)
