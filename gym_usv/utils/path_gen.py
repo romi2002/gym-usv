@@ -47,7 +47,8 @@ def plot_path(path, waypoints, obstacles):
     plt.show()
 
 
-def simplified_lookahead(path, current_x, lookahead):
+def simplified_lookahead(path, waypoints, current_x, lookahead):
     # simple "lookahead", take current boat position, add lookahead distance to x
     # simpler than an actual lookahead implementation, speedy boi
-    return current_x + lookahead, path(current_x + lookahead)
+    x = np.maximum(current_x + lookahead, waypoints[0][0]) # prevent going before x0
+    return x, path(x)
