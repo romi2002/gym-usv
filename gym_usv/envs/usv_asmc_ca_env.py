@@ -15,15 +15,15 @@ from collections import defaultdict
 from functools import lru_cache
 from numba import njit
 from gym_usv.control import UsvAsmc
+from gym_usv.utils import generate_path, place_obstacles, plot_path
+
 
 class UsvAsmcCaEnv(gym.Env):
     metadata = {'render.modes': ['human', 'rgb_array'], 'render_fps': 60}
 
-    def __init__(self,config=None):
+    def __init__(self, config=None):
         # Integral step (or derivative) for 100 Hz
         self.integral_step = 0.01
-
-
 
         # Overall vector variables
         self.state = None
@@ -129,6 +129,10 @@ class UsvAsmcCaEnv(gym.Env):
         self.clock = None
         self.isopen = True
         self.total_reward = 0
+
+        self.path = None
+        self.waypoints = None
+
         self.asmc = UsvAsmc()
         self.reset()
 
@@ -332,11 +336,17 @@ class UsvAsmcCaEnv(gym.Env):
         # Desired speed
         u_ref = np.random.uniform(low=self.min_u_ref, high=self.max_u_ref)
         # number of obstacles 
-        self.num_obs = np.random.random_integers(low=15, high=25)
-        # array of positions in x and y and radius
-        self.posx = np.random.normal(15, 10, size=(self.num_obs, 1))
-        self.posy = np.random.uniform(-10, 10, size=(self.num_obs, 1))
-        self.radius = np.random.normal(1.1, 0.65, size=(self.num_obs, 1))
+        self.num_obs = np.random.randint(low=25, high=50)
+
+        start_point = np.zeros(2)
+        self.path, self.waypoints = generate_path(np.array([x_0, y_0]), np.random.randint(8, 15))
+        obstacles = place_obstacles(self.path, self.waypoints, self.num_obs)
+        self.num_obs = len(obstacles) # Update after removing obstacles
+        plot_path(self.path, self.waypoints, obstacles)
+        self.posx = obstacles[:, 0]
+        self.posy = obstacles[:, 1]
+        self.radius = obstacles[:, 2]
+
         self.total_reward = 0
 
         distance = np.hypot(self.posx - eta[0],
@@ -519,13 +529,20 @@ class UsvAsmcCaEnv(gym.Env):
         angle = np.where(np.greater(np.abs(angle), np.pi), np.sign(angle) * (np.abs(angle) - 2 * np.pi), angle)
         for i in range(self.sector_num + 1):
             initial = ((y - self.min_y) * scale, (x - self.min_x) * scale)
-            m = np.math.tan(angle)
             x_f = self.sensor_max_range * np.math.cos(angle) + x - self.min_x
             y_f = self.sensor_max_range * np.math.sin(angle) + y - self.min_y
             final = (y_f * scale, x_f * scale)
             pygame.draw.line(self.surf, (0,0,0), initial, final, width=2)
             angle = angle + self.sensor_span / self.sector_num
             angle = np.where(np.greater(np.abs(angle), np.pi), np.sign(angle) * (np.abs(angle) - 2 * np.pi), angle)
+
+    def _draw_path(self, scale, path):
+        import pygame
+        # Draw path
+        path_x = np.linspace(self.waypoints[0][0], self.waypoints[-1][0])
+        path_y = path(path_x)
+        pygame.draw.lines(self.surf, (0, 255, 0), False,
+                          [tuple(p) for p in np.vstack([(path_y - self.min_y) * scale, (path_x - self.min_x) * scale]).T], width=2)
 
     def render(self, mode='human', info=None, draw_obstacles=True):
         screen_width = 400
@@ -568,17 +585,7 @@ class UsvAsmcCaEnv(gym.Env):
 
         self._draw_boat(scale, position)
 
-        clearance = -10
-
-        x_0 = (self.min_x - self.min_x) * scale
-        y_0 = (self.target[1] - self.min_y) * scale
-        x_d = (self.max_x - self.min_x) * scale
-        y_d = (self.target[5] - self.min_y) * scale
-        start = (y_0, x_0)
-        end = (y_d, x_d)
-
-        #Draw path
-        pygame.draw.line(self.surf, (0, 255, 0), start, end, width=2)
+        self._draw_path(scale, self.path)
 
         #Draw safety radius
         safety_radius = (self.boat_radius + self.safety_radius) * scale
