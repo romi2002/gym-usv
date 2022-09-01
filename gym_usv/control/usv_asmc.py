@@ -119,6 +119,7 @@ class UsvAsmc():
             # Compute speed error
             e_u = u_d - velocity[0]
             e_u_int = self.integral_step * (e_u + e_u_last) / 2 + e_u_int
+            e_u_last = e_u
 
             # Create sliding surfaces for speed and heading
             sigma_u = e_u + self.lambda_u * e_u_int
