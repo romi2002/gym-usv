@@ -65,8 +65,8 @@ class UsvAsmcCaEnv(gym.Env):
 
         # Min and max actions
         # velocity 
-        self.min_action0 = 1.0
-        self.max_action0 = 5.0
+        self.min_action0 = 0.5
+        self.max_action0 = 1.5
         # angle (change to -pi and pi if necessary)
         self.min_action1 = -np.pi
         self.max_action1 = np.pi
@@ -115,7 +115,7 @@ class UsvAsmcCaEnv(gym.Env):
         self.sectors = np.zeros((self.sector_num))
         self.debug_vars = {}
 
-        self.state_length = 7 + self.sector_num
+        self.state_length = 7
 
         # Min and max state vectors
         self.low_state = np.full(self.state_length, -1.0)
@@ -130,7 +130,7 @@ class UsvAsmcCaEnv(gym.Env):
         self.observation_space = spaces.Box(low=self.low_state, high=self.high_state,
                                             dtype=np.float32)
 
-        self.lookahead_distance = 5
+        self.lookahead_distance = 2.5
 
         self.screen = None
         self.font = None
@@ -168,7 +168,7 @@ class UsvAsmcCaEnv(gym.Env):
         courseerror = self._denormalize_val(lookahead_error, self.min_courseerror, self.max_courseerror)
 
         state = np.hstack(
-            (u, v, r, ylp, lookahead_error, courseerror, state[6:]))
+            (u, v, r, ylp, lookahead_error, courseerror))
 
         return state
 
@@ -209,9 +209,6 @@ class UsvAsmcCaEnv(gym.Env):
         u, v, r, courseangle_error, crosstrack_error, sectors = state[0], state[1], state[2], state[3], state[4], state[5:]
         x, y, psi = position
 
-        self.debug_vars['action_in_0'] = action_in[0]
-        self.debug_vars['action_in_1'] = action_in[1]
-
         action = [
             self._denormalize_val(action_in[0], self.min_action0, self.max_action0),
             self._denormalize_val(action_in[1], self.min_action1, self.max_action1)
@@ -248,42 +245,40 @@ class UsvAsmcCaEnv(gym.Env):
             done = collision
 
         # Compute sensor readings
-        self.sensors = self._compute_sensor_measurments(
-            position,
-            self.sensor_num,
-            self.sensor_max_range,
-            self.radius,
-            self.lidar_resolution,
-            self.posx,
-            self.posy,
-            self.num_obs,
-            distance)
+        # self.sensors = self._compute_sensor_measurments(
+        #     position,
+        #     self.sensor_num,
+        #     self.sensor_max_range,
+        #     self.radius,
+        #     self.lidar_resolution,
+        #     self.posx,
+        #     self.posy,
+        #     self.num_obs,
+        #     distance)
 
         # Feasability pooling: compute sectors
-        sectors = self._compute_feasability_pooling(self.sector_num, self.sector_size, self.sensor_max_range,
-                                                    self.lidar_resolution, self.boat_radius + self.safety_radius,
-                                                    self.sensors)
-        self.sectors = sectors
-        sectors = np.clip((1 - sectors / self.sensor_max_range), -1, 1)
+        # sectors = self._compute_feasability_pooling(self.sector_num, self.sector_size, self.sensor_max_range,
+        #                                             self.lidar_resolution, self.boat_radius + self.safety_radius,
+        #                                             self.sensors)
+        # self.sectors = sectors
+        # sectors = np.clip((1 - sectors / self.sensor_max_range), -1, 1)
 
         # Compute lookahead course error
         # compute angle from north to tangent line at lookahead point
-        ylp = np.arctan2(self.path_deriv(x_d - 0.1) - self.path_deriv(x_d), 0.1).item()
-        courseangle_error = self._wrap_angle(ylp - psi)
+        gamma_p = np.arctan2(self.path_deriv(x_d) - self.path_deriv(x_d + 0.1), 0.1).item()
+        courseangle_error = self._wrap_angle(gamma_p - psi)
 
         # Compute course error
         # the closest point on path to boat
-        yp = np.arctan2(self.path_deriv(x_0 - 0.1) - self.path_deriv(x_0), 0.1).item()
-        crosstrack_error = -yp * np.hypot(x_d - x_0, y_d - y_0)
+        chi_error = self._wrap_angle(np.arctan2(y_d - y_0, x_d - x_0) - psi)
+        self.debug_vars['chi_error'] = chi_error
 
-        self.debug_vars['psi'] = self._wrap_angle(psi)
-        self.debug_vars['yp'] = yp
-        self.debug_vars['look_error'] = courseangle_error
-        self.debug_vars['crosstrack_error'] = crosstrack_error
+        self.debug_vars['ca_error'] = courseangle_error
 
         # Compute reward
-        reward, info = self.compute_reward(courseangle_error, crosstrack_error, action_dot0, action_dot1, collision, self.u_ref, u, v)
+        reward, info = self.compute_reward(courseangle_error, chi_error, action_dot0, action_dot1, collision, self.u_ref, u, v)
         self.total_reward += reward
+        self.debug_vars['reward'] = reward
 
         if self.total_reward < -5000:
             done = True
@@ -299,7 +294,7 @@ class UsvAsmcCaEnv(gym.Env):
         # Fill overall vector variables
         #surge, sway, yaw velocity, LA course error, course error, cross-track, lambda, sectors...
         self.state = np.hstack((
-            upsilon[0], upsilon[1], upsilon[2], ylp, courseangle_error, crosstrack_error, np.log10(self.lambda_reward), sectors))
+            upsilon[0], upsilon[1], upsilon[2], chi_error, courseangle_error, crosstrack_error, np.log10(self.lambda_reward)))
         self.state = self._normalize_state(self.state)
 
         # Reshape state
@@ -694,16 +689,6 @@ class UsvAsmcCaEnv(gym.Env):
             info['reward_pf'] = reward_pf
             info['reward_exists'] = reward_exists
             info['reward_u_ref'] = u_ref
-            self.debug_vars['reward_a0'] = reward_a0
-            self.debug_vars['reward_a1'] = reward_a1
-            self.debug_vars['lambda'] = self.lambda_reward
-            self.debug_vars['crosstrack_error'] = reward_crosstrack
-            self.debug_vars['reward_cdir'] = reward_coursedirection
-            self.debug_vars['reward-ctrack'] = reward_crosstrack
-            self.debug_vars['reward_pf'] = reward_pf
-            self.debug_vars['reward_u'] = reward_u
-            self.debug_vars['reward_oa'] = reward_oa
-            self.debug_vars['reward'] = reward
             # print(info)
 
             if (np.abs(reward) > 100000 and not collision):
