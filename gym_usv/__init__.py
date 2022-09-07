@@ -17,6 +17,5 @@ register(
 
 register(
     id='usv-asmc-ca-v0',
-    entry_point='gym_usv.envs:UsvAsmcCaEnv',
-    max_episode_steps=1000
+    entry_point='gym_usv.envs:UsvAsmcCaEnv'
 )

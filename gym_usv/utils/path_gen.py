@@ -14,7 +14,7 @@ def generate_path(start_point, num_waypoints, angle_mean=0, angle_std=0.50, leng
     return path, waypoints
 
 
-def place_obstacles(path, waypoints, num_obs, obs_pos_std=8, obs_rad_mean=0.5, obs_rad_std=0.1, obs_min_size=0.01):
+def place_obstacles(path, waypoints, num_obs, obs_pos_std=8, obs_rad_mean=0.8, obs_rad_std=0.1, obs_min_size=0.01):
     path_dx = path.derivative()
 
     # x,y, radius
