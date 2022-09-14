@@ -65,7 +65,7 @@ class UsvAsmcCaEnv(gym.Env):
 
         # Min and max actions
         # velocity 
-        self.min_action0 = 0.5
+        self.min_action0 = 1.0
         self.max_action0 = 1.5
         # angle (change to -pi and pi if necessary)
         self.min_action1 = -np.pi
@@ -209,6 +209,9 @@ class UsvAsmcCaEnv(gym.Env):
         u, v, r, courseangle_error, crosstrack_error, sectors = state[0], state[1], state[2], state[3], state[4], state[5:]
         x, y, psi = position
 
+        self.debug_vars['raw_action_0'] = action_in[0]
+        self.debug_vars['raw_action_1'] = action_in[1]
+
         action = [
             self._denormalize_val(action_in[0], self.min_action0, self.max_action0),
             self._denormalize_val(action_in[1], self.min_action1, self.max_action1)
@@ -286,6 +289,12 @@ class UsvAsmcCaEnv(gym.Env):
         if x > self.max_x:
             done = True
 
+        distance_to_final = np.hypot(self.waypoints[-1][0] - position[0], self.waypoints[-1][1] - position[1])
+        self.debug_vars['dtf'] = distance_to_final
+        if distance_to_final < 1:
+            reward = (1 - self.lambda_reward) * 200
+            done = True
+
         # Fill overall vector variables
         #surge, sway, yaw velocity, LA course error, course error, cross-track, lambda, sectors...
         self.state = np.hstack((
@@ -331,7 +340,7 @@ class UsvAsmcCaEnv(gym.Env):
         # number of obstacles 
         self.num_obs = np.random.randint(low=5, high=25)
 
-        self.path, self.waypoints = generate_path(np.array([x_0, y_0]), np.random.randint(8, 15))
+        self.path, self.waypoints = generate_path(np.array([x_0, y_0]), np.random.randint(4, 12))
         self.path_deriv = self.path.derivative()
         obstacles = place_obstacles(self.path, self.waypoints, self.num_obs)
         self.num_obs = len(obstacles)  # Update after removing obstacles
@@ -376,7 +385,7 @@ class UsvAsmcCaEnv(gym.Env):
 
         self.position = np.array([eta[0], eta[1], psi])
 
-        self.lambda_reward = 10 ** -np.random.gamma(1, 1/2)
+        self.lambda_reward = 1 - np.power(10, -np.random.beta(5, 1.65))
         self.debug_vars['lambda'] = self.lambda_reward
 
         state, _, _, _ = self.step([0, 0])
@@ -571,7 +580,8 @@ class UsvAsmcCaEnv(gym.Env):
         if self.clock is None:
             self.clock = pygame.time.Clock()
         if self.font is None:
-            self.font = pygame.font.SysFont(None, 48)
+            pygame.font.init()
+            self.font = pygame.font.SysFont('arial', 48)
 
         self.surf = pygame.Surface((screen_width, screen_height))
         self.surf.fill((255, 255, 255))
@@ -653,7 +663,7 @@ class UsvAsmcCaEnv(gym.Env):
         info = {}
         if (collision == False):
             # Velocity reward
-            reward_u = np.clip(np.exp(-self.k_uu * np.abs(u_ref - np.hypot(u, v))), -1, 1) * 0
+            reward_u = np.clip(np.exp(-self.k_uu * np.abs(u_ref - np.hypot(u, v))), -1, 1)
             # Action velocity gradual change reward
             reward_a0 = np.math.tanh(-self.c_action0 * np.power(action_dot0, 2)) * self.k_action0 * 0
             # Action angle gradual change reward
@@ -664,13 +674,13 @@ class UsvAsmcCaEnv(gym.Env):
             # Path following reward
             reward_coursedirection = self._coursedirection_reward(courseangle_error, u, v)
             reward_crosstrack = self._crosstrack_reward(crosstrack_error)
-            reward_pf = (-1 + (reward_coursedirection + 1) * (reward_crosstrack + 1))
+            reward_pf = (-1 + (reward_coursedirection + 1) * (reward_crosstrack + 1)) * 3.0
             # reward_pf = -1 + reward_coursedirection * reward_crosstrack + reward_u
             # Obstacle avoidance reward
-            reward_oa = self._oa_reward(self.sensors) * 0.5
+            reward_oa = self._oa_reward(self.sensors) * 2.75
 
             # Exists reward
-            reward_exists = -self.lambda_reward * 1.25
+            reward_exists = -self.lambda_reward * 1.0
 
             # Total non-collision reward
             reward = self.lambda_reward * reward_pf + (
@@ -692,7 +702,7 @@ class UsvAsmcCaEnv(gym.Env):
 
         else:
             # Collision Reward
-            reward = (1 - self.lambda_reward) * -2000
+            reward = (1 - self.lambda_reward) * -200
 
         # print(reward)
         info['reward'] = reward
