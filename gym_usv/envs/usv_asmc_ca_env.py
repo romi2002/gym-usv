@@ -16,7 +16,7 @@ from functools import lru_cache
 from numba import njit
 from gym_usv.control import UsvAsmc
 from gym_usv.utils import generate_path, place_obstacles, simplified_lookahead
-
+from .usv_ca_renderer import UsvCaRenderer
 
 class UsvAsmcCaEnv(gym.Env):
     metadata = {'render.modes': ['human', 'rgb_array'], 'render_fps': 60}
@@ -133,9 +133,7 @@ class UsvAsmcCaEnv(gym.Env):
 
         self.lookahead_distance = 2.5
 
-        self.screen = None
-        self.font = None
-        self.clock = None
+        self.renderer = None
         self.isopen = True
         self.total_reward = 0
 
@@ -479,181 +477,29 @@ class UsvAsmcCaEnv(gym.Env):
                     sectors[i] = x[x_index]
         return sectors
 
-    def _transform_points(self, points, x, y, angle):
-        if angle is not None:
-            s, c = (np.sin(angle), np.cos(angle))
-            points = [(px * c - py * s, px * s + py * c) for (px, py) in points]
-        points = [(px + x, py + y) for (px, py) in points]
-        return points
-
-    def _draw_sectors(self, scale, position, sensors, sectors):
-        import pygame
-        x = position[0]
-        y = position[1]
-        psi = position[2]
-
-        for i in range(len(self.sensors)):
-            angle = sensors[i][0] + psi
-            # angle = np.where(np.greater(np.abs(angle), np.pi), np.sign(angle) * (np.abs(angle) - 2 * np.pi), angle)
-            initial = ((y - self.min_y) * scale, (x - self.min_x) * scale)
-            m = np.math.tan(angle)
-            x_f = sensors[i][1] * np.math.cos(angle) + x - self.min_x
-            y_f = sensors[i][1] * np.math.sin(angle) + y - self.min_y
-            final = (y_f * scale, x_f * scale)
-            section = np.floor(i / self.sector_size).astype(int)
-
-            color = (0, 255, 0)
-
-            if sectors[section] < 1:
-                color = (255, 0, 0)
-                if (i % 10 == 0):
-                    color = (255, 0, 255)
-            elif (i % 10 == 0):
-                color = (0, 0, 255)
-
-            pygame.draw.line(self.surf, color, initial, final)
-
-    def _draw_boat(self, scale, position):
-        import pygame
-        boat_width = 15
-        boat_height = 20
-
-        l, r, t, b, c, m = -boat_width / 2, boat_width / 2, boat_height, 0, 0, boat_height / 2
-        boat_points = [(l, b), (l, m), (c, t), (r, m), (r, b)]
-        boat_points = [(x, y - boat_height / 2) for (x, y) in boat_points]
-        boat_points = self._transform_points(boat_points, (position[1] - self.min_y) * scale,
-                                             (position[0] - self.min_x) * scale, -position[2])
-
-        pygame.draw.polygon(self.surf, (3, 94, 252), boat_points)
-
-    def _draw_obstacles(self, scale):
-        import pygame
-        for i in range(self.num_obs):
-            obs_points = [((self.posy[i][0] - self.min_y) * scale, (self.posx[i][0] - self.min_x) * scale)]
-            pygame.draw.circle(self.surf, (0, 0, 255), obs_points[0], self.radius[i][0] * scale)
-
-    def _draw_highlighted_sectors(self, scale):
-        import pygame
-        x = self.position[0]
-        y = self.position[1]
-        psi = self.position[2]
-
-        angle = -(2 / 3) * np.pi + psi
-        angle = np.where(np.greater(np.abs(angle), np.pi), np.sign(angle) * (np.abs(angle) - 2 * np.pi), angle)
-        for i in range(self.sector_num + 1):
-            initial = ((y - self.min_y) * scale, (x - self.min_x) * scale)
-            x_f = self.sensor_max_range * np.math.cos(angle) + x - self.min_x
-            y_f = self.sensor_max_range * np.math.sin(angle) + y - self.min_y
-            final = (y_f * scale, x_f * scale)
-            pygame.draw.line(self.surf, (0, 0, 0), initial, final, width=2)
-            angle = angle + self.sensor_span / self.sector_num
-            angle = np.where(np.greater(np.abs(angle), np.pi), np.sign(angle) * (np.abs(angle) - 2 * np.pi), angle)
-
-    def _draw_path(self, scale, path):
-        import pygame
-        # Draw path
-        path_x = np.linspace(self.waypoints[0][0], self.waypoints[-1][0])
-        path_y = path(path_x)
-        pygame.draw.lines(self.surf, (0, 255, 0), False,
-                          [tuple(p) for p in
-                           np.vstack([(path_y - self.min_y) * scale, (path_x - self.min_x) * scale]).T], width=2)
-
     ## TODO Add screen space transformation functions
     def render(self, mode='human', info=None, draw_obstacles=True, show_debug_vars=True):
-        screen_width = 400
-        screen_height = 800
+        if self.renderer is None:
+            self.renderer = UsvCaRenderer()
 
-        world_width = self.max_y - self.min_y
-        world_width = 20
-        scale = screen_width / world_width
-
-        if info is not None:
-            position = info['position']
-            sensors = info['sensors']
-            sectors = info['sectors']
-        else:
-            position = self.position
-            sensors = self.sensors
-            sectors = self.sectors
-
-        x = position[0]
-        y = position[1]
-        psi = position[2]
-
-        import pygame
-        if self.screen is None and mode == "human":
-            pygame.init()
-            pygame.display.init()
-            self.screen = pygame.display.set_mode((screen_width, screen_height))
-        if self.clock is None:
-            self.clock = pygame.time.Clock()
-        if self.font is None:
-            pygame.font.init()
-            self.font = pygame.font.SysFont('arial', 24)
-
-        self.surf = pygame.Surface((screen_width, screen_height))
-        self.surf.fill((255, 255, 255))
-
-        self._draw_sectors(scale, position, sensors, sectors)
-
-        if (draw_obstacles):
-            self._draw_obstacles(scale)
-
-        self._draw_boat(scale, position)
-
-        self._draw_path(scale, self.path)
-
-        # Draw target point
-        _, _, x_t, y_t, _ = self.target
-        pygame.draw.circle(self.surf, (100, 0, 255), ((y_t - self.min_y) * scale, (x_t - self.min_x) * scale), radius=5)
-
-        # Draw safety radius
-        safety_radius = (self.boat_radius + self.safety_radius) * scale
-        safety = ((y - self.min_y) * scale, (x - self.min_x) * scale)
-        pygame.draw.circle(self.surf, (255, 0, 0), safety, safety_radius, width=3)
-
-        self.surf = pygame.transform.flip(self.surf, False, True)
-
-        text_start_pos = (20, 20)
-        if show_debug_vars:
-            for key, var in self.debug_vars.items():
-                text_img = self.font.render(f"{key}: {round(var,4)}", True, (0,0,0))
-                self.surf.blit(text_img, text_start_pos)
-                text_start_pos = text_start_pos[0], text_start_pos[1] + 30
-
-
-        if mode == "human":
-            self.screen.blit(self.surf, (0, 0))
-            pygame.event.pump()
-            self.clock.tick(self.metadata["render_fps"])
-            pygame.display.flip()
-        if mode == "rgb_array":
-            return self._create_image_array(self.surf, (screen_width, screen_height))
-            return np.transpose(
-                np.array(pygame.surfarray.pixels3d(self.screen)), axes=(1, 0, 2)
-            )
-        else:
-            return self.isopen
-
-    def _create_image_array(self, screen, size):
-        import pygame
-
-        scaled_screen = pygame.transform.smoothscale(screen, size)
-        return np.transpose(
-            np.array(pygame.surfarray.pixels3d(scaled_screen)), axes=(1, 0, 2)
+        return self.renderer.render(
+            self.position,
+            self.sensors,
+            self.sectors,
+            self.sector_size,
+            self.posx,
+            self.posy,
+            self.radius,
+            self.waypoints,
+            self.path,
+            self.target,
+            self.debug_vars,
+            show_debug_vars,
+            mode
         )
 
     def close(self):
-        if self.screen is not None:
-            import pygame
-
-            pygame.display.quit()
-            self.isopen = False
-            pygame.quit()
-
-        if self.viewer:
-            self.viewer.close()
-            self.viewer = None
+        self.renderer.close()
 
     def _crosstrack_reward(self, ye):
         return np.maximum(np.exp(-self.k_ye * np.power(ye, 2)), np.exp(-self.k_ye * np.abs(ye)))
