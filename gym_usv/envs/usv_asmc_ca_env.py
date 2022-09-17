@@ -74,12 +74,12 @@ class UsvAsmcCaEnv(gym.Env):
         self.max_action1 = np.pi
 
         # Reward associated functions anf gains
-        self.k_ye = 0.5  # Crosstracking reward
+        self.k_ye = 0.25  # Crosstracking reward
 
         self.k_uu = 3.0  # Velocity Reward
 
-        self.gamma_theta = 2.0  # 4.0
-        self.gamma_x = 0.005  # 0.005
+        self.gamma_theta = 0.45  # 4.0
+        self.gamma_x = 0.01  # 0.005
         self.epsilon = 4.0
         self.lambda_reward = 0.85
 
@@ -88,8 +88,8 @@ class UsvAsmcCaEnv(gym.Env):
         # Action gradual change reward
         self.c_action0 = 1. / np.power((self.max_action0 / 2 - self.min_action0 / 2) / self.integral_step, 2)
         self.c_action1 = 1. / np.power((self.max_action1 / 2 - self.min_action1 / 2) / self.integral_step, 2)
-        self.k_action0 = 0.05
-        self.k_action1 = 0.05
+        self.k_action0 = 0.0
+        self.k_action1 = 0.0
 
         # Min and max values of the state
         self.min_u = -2.0
@@ -344,7 +344,7 @@ class UsvAsmcCaEnv(gym.Env):
         self.u_ref = np.random.uniform(low=self.min_u_ref, high=self.max_u_ref)
         self.debug_vars['u_ref'] = self.u_ref
         # number of obstacles 
-        self.num_obs = np.random.randint(low=10, high=25)
+        self.num_obs = np.random.randint(low=20, high=50)
         if not self.place_obstacles:
             self.num_obs = 0
 
@@ -660,6 +660,8 @@ class UsvAsmcCaEnv(gym.Env):
 
     def _coursedirection_reward(self, chi_ak, u, v):
         k_cd = 1
+        k_cd = 0.35
+        return np.exp(-k_cd * np.power(chi_ak, 2))
         return np.maximum(np.exp(-k_cd * np.power(chi_ak, 2)), np.exp(-k_cd * np.abs(chi_ak)))
 
     def _oa_reward(self, sensors):
@@ -671,7 +673,7 @@ class UsvAsmcCaEnv(gym.Env):
         info = {}
         if (collision == False):
             # Velocity reward
-            reward_u = np.clip(np.exp(-self.k_uu * np.abs(u_ref - np.hypot(u, v))), -1, 1)
+            reward_u = np.clip(np.exp(-self.k_uu * np.abs(u_ref - np.hypot(u, v))), 0, 1)
             # Action velocity gradual change reward
             reward_a0 = np.math.tanh(-self.c_action0 * np.power(action_dot0, 2)) * self.k_action0
             # Action angle gradual change reward
@@ -688,7 +690,7 @@ class UsvAsmcCaEnv(gym.Env):
             reward_oa = self._oa_reward(self.sensors)
 
             # Exists reward
-            reward_exists = -self.lambda_reward * 1.75
+            reward_exists = -self.lambda_reward * 1.5
 
             # Total non-collision reward
             reward = self.lambda_reward * reward_pf + (
@@ -703,6 +705,7 @@ class UsvAsmcCaEnv(gym.Env):
             info['reward_pf'] = reward_pf
             info['reward_exists'] = reward_exists
             info['reward_u_ref'] = u_ref
+            self.debug_vars['reward_oa'] = reward_oa
             # print(info)
 
             if (np.abs(reward) > 100000 and not collision):
@@ -711,6 +714,8 @@ class UsvAsmcCaEnv(gym.Env):
         else:
             # Collision Reward
             reward = (1 - self.lambda_reward) * -2000
+            info['reward_oa'] = 0
+            info['reward_pf'] = 0
 
         # print(reward)
         info['reward'] = reward
