@@ -25,6 +25,8 @@ class UsvAsmcCaEnv(gym.Env):
         # Integral step (or derivative) for 100 Hz
         self.integral_step = 0.01
 
+        self.place_obstacles = True
+
         # Overall vector variables
         self.state = None
         self.position = None
@@ -65,8 +67,8 @@ class UsvAsmcCaEnv(gym.Env):
 
         # Min and max actions
         # velocity 
-        self.min_action0 = 1.0
-        self.max_action0 = 1.5
+        self.min_action0 = 0.75
+        self.max_action0 = 1.4
         # angle (change to -pi and pi if necessary)
         self.min_action1 = -np.pi
         self.max_action1 = np.pi
@@ -74,11 +76,10 @@ class UsvAsmcCaEnv(gym.Env):
         # Reward associated functions anf gains
         self.k_ye = 0.5  # Crosstracking reward
 
-        self.k_uu = 2.0  # Velocity Reward
-        self.w_u = 1  # Velocity reward
+        self.k_uu = 3.0  # Velocity Reward
 
-        self.gamma_theta = 8.0  # 4.0
-        self.gamma_x = 0.05  # 0.005
+        self.gamma_theta = 2.0  # 4.0
+        self.gamma_x = 0.005  # 0.005
         self.epsilon = 4.0
         self.lambda_reward = 0.85
 
@@ -87,8 +88,8 @@ class UsvAsmcCaEnv(gym.Env):
         # Action gradual change reward
         self.c_action0 = 1. / np.power((self.max_action0 / 2 - self.min_action0 / 2) / self.integral_step, 2)
         self.c_action1 = 1. / np.power((self.max_action1 / 2 - self.min_action1 / 2) / self.integral_step, 2)
-        self.k_action0 = 2.5
-        self.k_action1 = 2.25
+        self.k_action0 = 0.05
+        self.k_action1 = 0.05
 
         # Min and max values of the state
         self.min_u = -2.0
@@ -103,8 +104,8 @@ class UsvAsmcCaEnv(gym.Env):
         self.min_courseerror = -10
         self.max_courseerror = 10
 
-        self.min_u_ref = 0.75
-        self.max_u_ref = 1.25
+        self.min_u_ref = 0.7
+        self.max_u_ref = 1.4
         self.u_ref = 0
 
         self.action0_last = 0
@@ -175,9 +176,9 @@ class UsvAsmcCaEnv(gym.Env):
     def _normalize_state(self, state):
         u, v, r, ylp, lookahead_error, courseerror = state[0], state[1], state[2], state[3], state[4], state[5]
 
-        self.debug_vars['u'] = u
-        self.debug_vars['v'] = v
-        self.debug_vars['r'] = r
+        self.debug_vars['vel'] = np.hypot(u, v)
+        #self.debug_vars['v'] = v
+        #self.debug_vars['r'] = r
 
         u = self._normalize_val(u, self.min_u, self.max_u)
         v = self._normalize_val(v, self.min_v, self.max_v)
@@ -209,8 +210,8 @@ class UsvAsmcCaEnv(gym.Env):
         u, v, r, courseangle_error, crosstrack_error, sectors = state[0], state[1], state[2], state[3], state[4], state[5:]
         x, y, psi = position
 
-        self.debug_vars['raw_action_0'] = action_in[0]
-        self.debug_vars['raw_action_1'] = action_in[1]
+        #self.debug_vars['raw_action_0'] = action_in[0]
+        #self.debug_vars['raw_action_1'] = action_in[1]
 
         action = [
             self._denormalize_val(action_in[0], self.min_action0, self.max_action0),
@@ -259,11 +260,15 @@ class UsvAsmcCaEnv(gym.Env):
             distance)
 
         # Feasability pooling: compute sectors
-        sectors = self._compute_feasability_pooling(self.sector_num, self.sector_size, self.sensor_max_range,
-                                                    self.lidar_resolution, self.boat_radius + self.safety_radius,
-                                                    self.sensors)
+        sectors = np.full(self.sector_num, 1)
+
+        if self.place_obstacles:
+            sectors = self._compute_feasability_pooling(self.sector_num, self.sector_size, self.sensor_max_range,
+                                                        self.lidar_resolution, self.boat_radius + self.safety_radius,
+                                                        self.sensors)
+            sectors = np.clip((sectors / self.sensor_max_range), 0, 1)
+
         self.sectors = sectors
-        sectors = np.clip((sectors / self.sensor_max_range), 0, 1)
 
         # Compute lookahead course error
         # compute angle from north to tangent line at lookahead point
@@ -290,7 +295,7 @@ class UsvAsmcCaEnv(gym.Env):
             done = True
 
         distance_to_final = np.hypot(self.waypoints[-1][0] - position[0], self.waypoints[-1][1] - position[1])
-        self.debug_vars['dtf'] = distance_to_final
+        #self.debug_vars['dtf'] = distance_to_final
         if distance_to_final < 1:
             reward = (1 - self.lambda_reward) * 200
             done = True
@@ -337,10 +342,13 @@ class UsvAsmcCaEnv(gym.Env):
         y_d = y_0
         # Desired speed
         self.u_ref = np.random.uniform(low=self.min_u_ref, high=self.max_u_ref)
+        self.debug_vars['u_ref'] = self.u_ref
         # number of obstacles 
-        self.num_obs = np.random.randint(low=5, high=25)
+        self.num_obs = np.random.randint(low=10, high=25)
+        if not self.place_obstacles:
+            self.num_obs = 0
 
-        self.path, self.waypoints = generate_path(np.array([x_0, y_0]), np.random.randint(4, 12))
+        self.path, self.waypoints = generate_path(np.array([x_0, y_0]), np.random.randint(10, 20))
         self.path_deriv = self.path.derivative()
         obstacles = place_obstacles(self.path, self.waypoints, self.num_obs)
         self.num_obs = len(obstacles)  # Update after removing obstacles
@@ -496,7 +504,7 @@ class UsvAsmcCaEnv(gym.Env):
 
             color = (0, 255, 0)
 
-            if sectors[section] < self.sensor_max_range:
+            if sectors[section] < 1:
                 color = (255, 0, 0)
                 if (i % 10 == 0):
                     color = (255, 0, 255)
@@ -581,7 +589,7 @@ class UsvAsmcCaEnv(gym.Env):
             self.clock = pygame.time.Clock()
         if self.font is None:
             pygame.font.init()
-            self.font = pygame.font.SysFont('arial', 48)
+            self.font = pygame.font.SysFont('arial', 24)
 
         self.surf = pygame.Surface((screen_width, screen_height))
         self.surf.fill((255, 255, 255))
@@ -665,22 +673,22 @@ class UsvAsmcCaEnv(gym.Env):
             # Velocity reward
             reward_u = np.clip(np.exp(-self.k_uu * np.abs(u_ref - np.hypot(u, v))), -1, 1)
             # Action velocity gradual change reward
-            reward_a0 = np.math.tanh(-self.c_action0 * np.power(action_dot0, 2)) * self.k_action0 * 0
+            reward_a0 = np.math.tanh(-self.c_action0 * np.power(action_dot0, 2)) * self.k_action0
             # Action angle gradual change reward
-            reward_a1 = np.math.tanh(-self.c_action1 * np.power(action_dot1, 2)) * self.k_action1 * 0
-            self.debug_vars['reward_a0'] = reward_a0
-            self.debug_vars['reward_a1'] = reward_a1
+            reward_a1 = np.math.tanh(-self.c_action1 * np.power(action_dot1, 2)) * self.k_action1
+            #self.debug_vars['reward_a0'] = reward_a0
+            #self.debug_vars['reward_a1'] = reward_a1
 
             # Path following reward
             reward_coursedirection = self._coursedirection_reward(courseangle_error, u, v)
             reward_crosstrack = self._crosstrack_reward(crosstrack_error)
-            reward_pf = (-1 + (reward_coursedirection + 1) * (reward_crosstrack + 1)) * 3.0
+            reward_pf = (-2 + (reward_coursedirection + 1) * (reward_crosstrack + 1) * (reward_u + 1))
             # reward_pf = -1 + reward_coursedirection * reward_crosstrack + reward_u
             # Obstacle avoidance reward
-            reward_oa = self._oa_reward(self.sensors) * 2.75
+            reward_oa = self._oa_reward(self.sensors)
 
             # Exists reward
-            reward_exists = -self.lambda_reward * 1.0
+            reward_exists = -self.lambda_reward * 1.75
 
             # Total non-collision reward
             reward = self.lambda_reward * reward_pf + (
@@ -702,7 +710,7 @@ class UsvAsmcCaEnv(gym.Env):
 
         else:
             # Collision Reward
-            reward = (1 - self.lambda_reward) * -200
+            reward = (1 - self.lambda_reward) * -2000
 
         # print(reward)
         info['reward'] = reward

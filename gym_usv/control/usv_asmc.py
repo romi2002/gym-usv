@@ -150,10 +150,8 @@ class UsvAsmc():
             tport = (tx / 2) + (tz / self.B)
             tstbd = (tx / (2 * self.c)) - (tz / (self.B * self.c))
 
-            tport = np.where(np.greater(tport, 36.5), 36.5, tport)
-            tport = np.where(np.less(tport, -30), -30, tport)
-            tstbd = np.where(np.greater(tstbd, 36.5), 36.5, tstbd)
-            tstbd = np.where(np.less(tstbd, -30), -30, tstbd)
+            tport = np.clip(tport, -30, 30)
+            tstbd = np.clip(tstbd, -30, 30)
 
             # Compute USV model matrices
             M = np.array([[self.m - self.X_u_dot, 0, 0],
