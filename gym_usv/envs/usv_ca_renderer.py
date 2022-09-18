@@ -17,9 +17,7 @@ class UsvCaRenderer():
         self.max_x = 30
         self.min_x = -10
 
-        pygame.init()
-        pygame.display.init()
-        self.screen = pygame.display.set_mode(self.screen_dim)
+        self.screen = None
         self.clock = pygame.time.Clock()
         pygame.font.init()
         self.font = pygame.font.SysFont('arial', 24)
@@ -119,6 +117,12 @@ class UsvCaRenderer():
                mode='human',
                render_fps=60
                ):
+
+        if self.screen is None and mode == "human":
+            pygame.init()
+            pygame.display.init()
+            self.screen = pygame.display.set_mode(self.screen_dim)
+
         surf = pygame.Surface(self.screen_dim)
         surf.fill((255, 255, 255))
 
@@ -152,7 +156,7 @@ class UsvCaRenderer():
             self.clock.tick(render_fps)
             pygame.display.flip()
         if mode == "rgb_array":
-            return self._create_image_array(surf, (screen_width, screen_height))
+            return self._create_image_array(surf, surf, self.screen_dim)
             return np.transpose(
                 np.array(pygame.surfarray.pixels3d(self.screen)), axes=(1, 0, 2)
             )

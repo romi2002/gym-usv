@@ -348,7 +348,7 @@ class UsvAsmcCaEnv(gym.Env):
 
         self.path, self.waypoints = generate_path(np.array([x_0, y_0]), np.random.randint(10, 20))
         self.path_deriv = self.path.derivative()
-        obstacles = place_obstacles(self.path, self.waypoints, self.num_obs)
+        obstacles = place_obstacles(self.path, self.waypoints, self.num_obs, obs_pos_std=15)
         self.num_obs = len(obstacles)  # Update after removing obstacles
         self.posx = obstacles[:, 0]
         self.posy = obstacles[:, 1]
@@ -499,7 +499,8 @@ class UsvAsmcCaEnv(gym.Env):
         )
 
     def close(self):
-        self.renderer.close()
+        if self.renderer is not None:
+            self.renderer.close()
 
     def _crosstrack_reward(self, ye):
         return np.maximum(np.exp(-self.k_ye * np.power(ye, 2)), np.exp(-self.k_ye * np.abs(ye)))
