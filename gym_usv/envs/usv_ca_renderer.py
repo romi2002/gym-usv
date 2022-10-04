@@ -110,6 +110,7 @@ class UsvCaRenderer():
                obstacle_y,
                obstacle_radius,
                waypoints,
+               courseangle_error,
                path,
                target,
                debug_vars,

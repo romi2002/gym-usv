@@ -48,7 +48,7 @@ class UsvAsmcCaEnv(gym.Env):
         self.lidar_resolution = self.sensor_span / self.sensor_num  # angle resolution in radians
         self.sector_num = 25  # number of sectors
         self.sector_size = np.floor(self.sensor_num / self.sector_num).astype(int)  # number of points per sector
-        self.sensor_max_range = 10.0  # m
+        self.sensor_max_range = 40.0  # m
         self.last_reward = 0
 
         # Boat radius
@@ -78,9 +78,9 @@ class UsvAsmcCaEnv(gym.Env):
 
         self.k_uu = 3.0  # Velocity Reward
 
-        self.gamma_theta = 0.45  # 4.0
-        self.gamma_x = 0.01  # 0.005
-        self.epsilon = 4.0
+        self.gamma_theta = 4.0  # 4.0
+        self.gamma_x = 0.0005  # 0.005
+        self.epsilon = 1
         self.lambda_reward = 0.85
 
         self.w_action0 = 0.2
@@ -131,7 +131,8 @@ class UsvAsmcCaEnv(gym.Env):
         self.observation_space = spaces.Box(low=self.low_state, high=self.high_state,
                                             dtype=np.float32)
 
-        self.lookahead_distance = 2.5
+        self.lookahead_distance = 5.0
+        self.courseangle_error = 0
 
         self.renderer = None
         self.isopen = True
@@ -272,6 +273,7 @@ class UsvAsmcCaEnv(gym.Env):
         # compute angle from north to tangent line at lookahead point
         gamma_p = np.arctan2(self.path_deriv(x_d) - self.path_deriv(x_d + 0.1), 0.1).item()
         courseangle_error = self._wrap_angle(gamma_p - psi)
+        self.courseangle_error = courseangle_error
 
         # Compute course error
         # the closest point on path to boat
@@ -294,9 +296,9 @@ class UsvAsmcCaEnv(gym.Env):
 
         distance_to_final = np.hypot(self.waypoints[-1][0] - position[0], self.waypoints[-1][1] - position[1])
         #self.debug_vars['dtf'] = distance_to_final
-        if distance_to_final < 1:
-            reward = (1 - self.lambda_reward) * 200
-            done = True
+        #if distance_to_final < 1:
+            #reward = (1 - self.lambda_reward) * 200
+            #done = True
 
         # Fill overall vector variables
         #surge, sway, yaw velocity, LA course error, course error, cross-track, lambda, sectors...
@@ -391,7 +393,7 @@ class UsvAsmcCaEnv(gym.Env):
 
         self.position = np.array([eta[0], eta[1], psi])
 
-        self.lambda_reward = 1 - np.power(10, -np.random.beta(5, 1.65))
+        self.lambda_reward = 1 - np.power(10, -np.random.beta(8, 0.65)) + 0.1
         self.debug_vars['lambda'] = self.lambda_reward
 
         state, _, _, _ = self.step([0, 0])
@@ -491,6 +493,7 @@ class UsvAsmcCaEnv(gym.Env):
             self.posy,
             self.radius,
             self.waypoints,
+            self.courseangle_error,
             self.path,
             self.target,
             self.debug_vars,
@@ -512,7 +515,14 @@ class UsvAsmcCaEnv(gym.Env):
         return np.maximum(np.exp(-k_cd * np.power(chi_ak, 2)), np.exp(-k_cd * np.abs(chi_ak)))
 
     def _oa_reward(self, sensors):
-        numerator = np.sum(np.power(self.gamma_x * np.power(np.maximum(sensors[:, 1], self.epsilon), 2), -1))
+        gammainv = np.power(1 + np.abs(sensors[:, 0] * self.gamma_theta), -1)
+        distelem = np.power(self.gamma_x * np.power(np.maximum(sensors[:, 1], self.epsilon), 2), -1)
+
+        numerator = np.sum(distelem)
+        denominator = np.sum(gammainv)
+        return -(numerator / denominator)
+
+        #numerator = np.sum(np.power()
         denominator = np.sum(1 + np.abs(sensors[:, 0] * self.gamma_theta))
         return -(numerator / denominator)
 
@@ -534,10 +544,10 @@ class UsvAsmcCaEnv(gym.Env):
             reward_pf = (-2 + (reward_coursedirection + 1) * (reward_crosstrack + 1) * (reward_u + 1))
             # reward_pf = -1 + reward_coursedirection * reward_crosstrack + reward_u
             # Obstacle avoidance reward
-            reward_oa = self._oa_reward(self.sensors)
+            reward_oa = self._oa_reward(self.sensors) / 10.0
 
             # Exists reward
-            reward_exists = -self.lambda_reward * 1.5
+            reward_exists = -self.lambda_reward * 1.25
 
             # Total non-collision reward
             reward = self.lambda_reward * reward_pf + (
