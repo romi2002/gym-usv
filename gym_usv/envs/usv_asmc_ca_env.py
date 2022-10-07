@@ -26,6 +26,7 @@ class UsvAsmcCaEnv(gym.Env):
         self.integral_step = 0.01
 
         self.place_obstacles = True
+        self.use_kinematic_model = True
 
         # Overall vector variables
         self.state = None
@@ -67,7 +68,7 @@ class UsvAsmcCaEnv(gym.Env):
 
         # Min and max actions
         # velocity 
-        self.min_action0 = 0.75
+        self.min_action0 = 0.0
         self.max_action0 = 1.4
         # angle (change to -pi and pi if necessary)
         self.min_action1 = -np.pi
@@ -92,12 +93,12 @@ class UsvAsmcCaEnv(gym.Env):
         self.k_action1 = 0.0
 
         # Min and max values of the state
-        self.min_u = -2.0
-        self.max_u = 2.0
-        self.min_v = -1.5
-        self.max_v = 1.5
-        self.min_r = -4.
-        self.max_r = 4.
+        self.min_u = -2.5/2
+        self.max_u = 2.5/2
+        self.min_v = -1.75/2
+        self.max_v = 1.75/2
+        self.min_r = -2.
+        self.max_r = 2.
 
         self.min_lookahead_error = -np.pi
         self.max_lookahead_error = np.pi
@@ -131,7 +132,7 @@ class UsvAsmcCaEnv(gym.Env):
         self.observation_space = spaces.Box(low=self.low_state, high=self.high_state,
                                             dtype=np.float32)
 
-        self.lookahead_distance = 5.0
+        self.lookahead_distance = 1.0
         self.courseangle_error = 0
 
         self.renderer = None
@@ -217,7 +218,28 @@ class UsvAsmcCaEnv(gym.Env):
             self._denormalize_val(action_in[1], self.min_action1, self.max_action1)
         ]
 
-        eta, upsilon = self.asmc.compute(action, np.array([x, y, psi]), np.array([u, v, r]))
+        if self.use_kinematic_model:
+            # Update rotational vel
+            T = 1/10
+            dvr = T * (psi - action[1])
+            r += dvr
+            r = np.clip(r, self.min_r, self.max_r)
+            psi += r * self.integral_step
+
+            du, dv = (T * (u - action[0])), 0
+            u = np.clip(u + du, self.min_u, self.max_u)
+            v = np.clip(v + dv, self.min_v, self.max_v)
+
+            x += u * self.integral_step * -np.cos(psi)
+            y += u * self.integral_step * -np.sin(psi)
+
+            upsilon = u,v,r
+            self.debug_vars['u'] = u
+            self.debug_vars['r'] = r
+            eta = x,y,psi
+        else:
+            eta, upsilon = self.asmc.compute(action, np.array([x, y, psi]), np.array([u, v, r]))
+
         psi = eta[2]
         u, v, r = upsilon
         self.position = eta
@@ -248,7 +270,7 @@ class UsvAsmcCaEnv(gym.Env):
 
         # Compute sensor readings
         self.sensors = self._compute_sensor_measurments(
-            position,
+            self.position,
             self.sensor_num,
             self.sensor_max_range,
             self.radius,
@@ -288,8 +310,8 @@ class UsvAsmcCaEnv(gym.Env):
         self.debug_vars['reward'] = reward
 
         # If USV collides, abort
-        if collision:
-            done = True
+        # if collision:
+        #     done = True
 
         if x > self.max_x:
             done = True
@@ -541,7 +563,7 @@ class UsvAsmcCaEnv(gym.Env):
             # Path following reward
             reward_coursedirection = self._coursedirection_reward(courseangle_error, u, v)
             reward_crosstrack = self._crosstrack_reward(crosstrack_error)
-            reward_pf = (-2 + (reward_coursedirection + 1) * (reward_crosstrack + 1) * (reward_u + 1))
+            reward_pf = ((reward_coursedirection) * (reward_crosstrack) * (reward_u))
             # reward_pf = -1 + reward_coursedirection * reward_crosstrack + reward_u
             # Obstacle avoidance reward
             reward_oa = self._oa_reward(self.sensors) / 10.0
