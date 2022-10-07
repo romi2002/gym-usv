@@ -104,15 +104,9 @@ class UsvCaRenderer():
     def render(self,
                position,
                sensors,
-               sectors,
-               sector_size,
                obstacle_x,
                obstacle_y,
                obstacle_radius,
-               waypoints,
-               courseangle_error,
-               path,
-               target,
                debug_vars,
                show_debug_vars,
                mode='human',
@@ -127,15 +121,13 @@ class UsvCaRenderer():
         surf = pygame.Surface(self.screen_dim)
         surf.fill((255, 255, 255))
 
-        self._draw_sectors(surf, position, sensors, sectors, sector_size)
         self._draw_obstacles(surf, obstacle_x, obstacle_y, obstacle_radius)
         self._draw_boat(surf, position)
-        self._draw_path(surf, waypoints, path)
 
         # Draw target point
-        _, _, x_t, y_t, _ = target
-        pygame.draw.circle(surf, (100, 0, 255), ((y_t - self.min_y) * self.scale, (x_t - self.min_x) * self.scale),
-                           radius=5)
+        # _, _, x_t, y_t, _ = target
+        # pygame.draw.circle(surf, (100, 0, 255), ((y_t - self.min_y) * self.scale, (x_t - self.min_x) * self.scale),
+        #                    radius=5)
 
         # TODO Draw safety radius
         # safety_radius = (self.boat_radius + self.safety_radius) * scale
