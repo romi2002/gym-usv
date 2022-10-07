@@ -22,6 +22,21 @@ class UsvCaRenderer():
         pygame.font.init()
         self.font = pygame.font.SysFont('arial', 24)
 
+    def _draw_sensors(self, surf, position, sensors):
+        x, y, psi = position
+
+        for i, s in enumerate(sensors):
+            angle = s[0] + psi
+            # angle = np.where(np.greater(np.abs(angle), np.pi), np.sign(angle) * (np.abs(angle) - 2 * np.pi), angle)
+            initial = ((y - self.min_y) * self.scale, (x - self.min_x) * self.scale)
+            x_f = s[1] * np.math.cos(angle) + x - self.min_x
+            y_f = s[1] * np.math.sin(angle) + y - self.min_y
+            final = (y_f * self.scale, x_f * self.scale)
+
+            color = (0, 255, 0)
+
+            pygame.draw.line(surf, color, initial, final)
+
     def _draw_sectors(self, surf, position, sensors, sectors, sector_size):
         x, y, psi = position
 
@@ -104,6 +119,7 @@ class UsvCaRenderer():
     def render(self,
                position,
                sensors,
+               target_point,
                obstacle_x,
                obstacle_y,
                obstacle_radius,
@@ -122,12 +138,13 @@ class UsvCaRenderer():
         surf.fill((255, 255, 255))
 
         self._draw_obstacles(surf, obstacle_x, obstacle_y, obstacle_radius)
+        self._draw_sensors(surf, position, sensors)
         self._draw_boat(surf, position)
 
         # Draw target point
-        # _, _, x_t, y_t, _ = target
-        # pygame.draw.circle(surf, (100, 0, 255), ((y_t - self.min_y) * self.scale, (x_t - self.min_x) * self.scale),
-        #                    radius=5)
+        x_t, y_t = target_point
+        pygame.draw.circle(surf, (0, 255, 0), ((y_t - self.min_y) * self.scale, (x_t - self.min_x) * self.scale),
+                           radius=10)
 
         # TODO Draw safety radius
         # safety_radius = (self.boat_radius + self.safety_radius) * scale
@@ -139,7 +156,10 @@ class UsvCaRenderer():
         text_start_pos = (20, 20)
         if show_debug_vars:
             for key, var in debug_vars.items():
-                text_img = self.font.render(f"{key}: {round(var, 4)}", True, (0, 0, 0))
+                if isinstance(var, str):
+                    text_img = self.font.render(f"{key}: {var}", True, (0, 0, 0))
+                else:
+                    text_img = self.font.render(f"{key}: {round(var, 4)}", True, (0, 0, 0))
                 surf.blit(text_img, text_start_pos)
                 text_start_pos = text_start_pos[0], text_start_pos[1] + 30
 

@@ -38,7 +38,7 @@ class UsvAsmcCaEnv(gym.Env):
         self.velocity = np.zeros(3)
         self.position = np.zeros(3)
 
-        self.sensor_num = 20
+        self.sensor_num = 100
         # angle, distance
         self.sensors = np.zeros((self.sensor_num, 2))
         self.sensor_span = (2 / 3) * (2 * np.pi)
@@ -206,7 +206,8 @@ class UsvAsmcCaEnv(gym.Env):
             self.obs_x,
             self.obs_y,
             self.num_obs,
-            distance) / [1, self.sensor_max_range]
+            distance)
+        sensors = self.sensors / [1, self.sensor_max_range]
 
         distance_to_target = np.hypot(self.position[0] - self.target_point[0], self.position[1] - self.target_point[1])
         angle_to_target = self._wrap_angle(
@@ -221,8 +222,9 @@ class UsvAsmcCaEnv(gym.Env):
         self.debug_vars['reward'] = reward
 
         self.state = np.hstack(
-            (distance_to_target, angle_to_target, u, normal_velocity, angular_acceleration, self.sensors[:,1]))
+            (distance_to_target, angle_to_target, u, normal_velocity, angular_acceleration, sensors[:,1]))
         # self.state = self._normalize_state(self.state)
+        self.debug_vars['p'] = ", ".join([str(np.round(p, 3)) for p in self.position])
 
         # Reshape state
         self.state = self.state.reshape(self.observation_space.shape[0]).astype(np.float32)
@@ -242,13 +244,14 @@ class UsvAsmcCaEnv(gym.Env):
 
         self.target_point = np.random.uniform(low=(self.min_x, self.min_y), high=(self.max_x, self.max_y), size=2)
 
-        min_radius = 1
-        max_radius = 10
+        # TODO maybe change distribution
+        min_radius = 0.3
+        max_radius = 0.7
         obstacles = np.random.uniform(
             low=np.tile((self.min_x, self.min_y, min_radius), (self.num_obs, 1)).T,
             high=np.tile((self.max_x, self.max_y, max_radius), (self.num_obs, 1)).T,
-            size=(3, self.num_obs))
-        self.num_obs = len(obstacles)  # Update after removing obstacles
+            size=(3, self.num_obs)).T
+        self.num_obs = len(obstacles)
         self.obs_x = obstacles[:, 0]
         self.obs_y = obstacles[:, 1]
         self.obs_r = obstacles[:, 2]
@@ -301,19 +304,17 @@ class UsvAsmcCaEnv(gym.Env):
         return sensors
 
     @staticmethod
-    @njit
+    #@njit
     def _compute_sensor_distances(sensor_max_range, num_obs, sensors, radius, ned_obstacle_positions, obs_order):
         new_distances = np.full(len(sensors), sensor_max_range)
         for i in range(len(sensors)):
-            if sensors[i][1] != sensor_max_range:
-                continue
             for j in range(num_obs):
                 (obs_x, obs_y) = ned_obstacle_positions[i][j]
                 obs_idx = obs_order[j]
 
                 if obs_x < 0:
                     # Obstacle is behind sensor
-                    # self.sensors[i][1] = self.sensor_max_range
+                    #sensors[i][1] = sensor_max_range
                     continue
 
                 delta = (radius[obs_idx] * radius[obs_idx]) - (obs_y * obs_y)
@@ -323,6 +324,7 @@ class UsvAsmcCaEnv(gym.Env):
                 new_distance = obs_x - np.sqrt(delta)
                 if new_distance < sensor_max_range:
                     new_distances[i] = min(new_distance[0], sensors[i][1])
+                    break
         return new_distances
 
     ## TODO Add screen space transformation functions
@@ -333,6 +335,7 @@ class UsvAsmcCaEnv(gym.Env):
         return self.renderer.render(
             self.position,
             self.sensors,
+            self.target_point,
             self.obs_x,
             self.obs_y,
             self.obs_r,
