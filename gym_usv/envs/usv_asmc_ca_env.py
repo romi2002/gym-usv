@@ -13,6 +13,7 @@ import numpy as np
 from numba import njit
 from gym_usv.control import UsvAsmc
 from .usv_ca_renderer import UsvCaRenderer
+from scipy.spatial import distance
 
 
 class UsvAsmcCaEnv(gym.Env):
@@ -20,7 +21,7 @@ class UsvAsmcCaEnv(gym.Env):
 
     def __init__(self, config=None):
         # Integral step (or derivative) for 100 Hz
-        self.integral_step = 0.05
+        self.integral_step = 0.075
 
         self.place_obstacles = True
         self.use_kinematic_model = True
@@ -39,14 +40,14 @@ class UsvAsmcCaEnv(gym.Env):
         self.last_velocity = np.zeros(3)
         self.position = np.zeros(3)
 
-        self.sensor_num = 100
+        self.sensor_num = 50
         # angle, distance
         self.sensors = np.zeros((self.sensor_num, 2))
         self.sensor_span = (2 / 3) * (2 * np.pi)
         self.lidar_resolution = self.sensor_span / self.sensor_num  # angle resolution in radians
         self.sector_num = 25  # number of sectors
         self.sector_size = np.floor(self.sensor_num / self.sector_num).astype(int)  # number of points per sector
-        self.sensor_max_range = 40.0  # m
+        self.sensor_max_range = 10.0  # m
         self.last_reward = 0
 
         # Boat radius
@@ -65,7 +66,7 @@ class UsvAsmcCaEnv(gym.Env):
 
         # Min and max actions
         # velocity 
-        self.min_action0 = 0.0
+        self.min_action0 = 0.5
         self.max_action0 = 2.0
         # angle (change to -pi and pi if necessary)
         self.min_action1 = -np.pi
@@ -223,14 +224,20 @@ class UsvAsmcCaEnv(gym.Env):
 
         # Compute reward
         arrived = distance_to_target < 1
-        reward, info = self.compute_reward(collision, arrived, angle_to_target, sensors, distance_to_target, normal_velocity)
+        vec_to_targ = np.array([np.cos(angle_to_target), np.sin(angle_to_target)])
+        self.debug_vars['vec_x'] = vec_to_targ[0]
+        self.debug_vars['vec_y'] = vec_to_targ[1]
+        if distance.size == 0:
+            distance = np.array([1e10])
+
+        reward, info = self.compute_reward(np.min(distance), vec_to_targ, u, v, arrived, psi)
         self.total_reward += reward
         self.debug_vars['reward'] = reward
 
         self.last_velocity = self.velocity
 
         self.state = np.hstack(
-            (distance_to_target / 100, angle_to_target / np.pi, u / self.max_u, v / self.max_v, r / self.max_r, action_in, sensors[:,1]))
+            (np.cos(angle_to_target) / np.pi, np.sin(angle_to_target) / np.pi, u / self.max_u, v / self.max_v, r / self.max_r, action_in, sensors[:,1]))
         self.debug_vars['p'] = ", ".join([str(np.round(p, 3)) for p in self.position])
 
         if arrived:
@@ -389,39 +396,50 @@ class UsvAsmcCaEnv(gym.Env):
         denominator = np.sum(1 + np.abs(sensors[:, 0] * gamma_theta))
         return -(numerator / denominator)
 
-    def compute_reward(self, collision, arrived, angle_to_target, sensors, distance, velocity):
+    def compute_reward(self, distance_to_obs, vec_to_targ, u, v, arrived, psi):
         info = {}
-        C1 = 100000
-        C2 = 80
-        C3 = 200000
-        k = 3
 
-        dist_reward = np.exp(distance/-8)
-        reward_angle = (1 + k * (np.pi - np.abs(angle_to_target)))
-        velocity_reward = np.exp(velocity / 10)
+        soft_margin = 1
+        hard_margin = 0.5
+        collision = False
+        r_margin = 0
+        c1_Margin = 1
+        c2_Margin = 1
 
+        if distance_to_obs < hard_margin:
+            # collision
+            collision = True
+        elif hard_margin < distance_to_obs < soft_margin:
+            # hard margin
+            r_margin = -c2_Margin/distance_to_obs
+        elif distance_to_obs < soft_margin:
+            # soft margin
+            r_margin = -c1_Margin * (soft_margin - distance_to_obs)/(soft_margin - hard_margin)
+
+        r_goal = 0
         if collision:
-            reward = -C1
+            r_goal = -100
         elif arrived:
-            reward = C3
+            r_goal = 100
+
+        if np.max(np.abs([u, v])) < 0.001:
+            r_towards = 0
         else:
-            #reward = -k * np.abs(angle_to_target) - C2
-            reward = (1 + dist_reward) * (1 + reward_angle) * velocity_reward
-            reward -= C2
+            vel = np.array([u, v])
+            vel = vel / np.sqrt(np.sum(vel**2))
+            self.debug_vars['vel.x'] = vel[0]
+            self.debug_vars['vel.y'] = vel[1]
+            r_towards = 1 - distance.cosine(vec_to_targ, vel)
 
-        self.debug_vars['orig_r'] = reward
-        self.debug_vars['ang_tar'] = angle_to_target
-        oa_reward = self._oa_reward(sensors) * 0.5
-        #reward += oa_reward
-        self.debug_vars['oa_r'] = oa_reward
-        self.debug_vars['ang_r'] = reward_angle
-        self.debug_vars['vel_r'] = velocity_reward
+        reward = r_margin + r_goal + r_towards - 0.7
 
-        #dist_reward = np.exp(-0.3 * np.abs(distance)) * 4 - 1
-        self.debug_vars['dist_r'] = 1+dist_reward
+        self.debug_vars['r'] = reward
+        self.debug_vars['r_margin'] = r_margin
+        self.debug_vars['r_goal'] = r_goal
+        self.debug_vars['r_towards'] = r_towards
 
         self.last_reward = reward
-        return reward / 50, info
+        return reward, info
 
     def body_to_path(self, x2, y2, alpha):
         '''
