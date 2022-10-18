@@ -8,12 +8,13 @@ avoidance on the OpenAI Gym library.
 """
 
 import gym
-from gym import spaces
 import numpy as np
+from gym import spaces
 from numba import njit
+from scipy.spatial import distance
+
 from gym_usv.control import UsvAsmc
 from .usv_ca_renderer import UsvCaRenderer
-from scipy.spatial import distance
 
 
 class UsvAsmcCaEnv(gym.Env):
@@ -104,6 +105,12 @@ class UsvAsmcCaEnv(gym.Env):
 
         self.target_point = np.zeros(2)
 
+        self.pos_history_pos = np.zeros(3)
+        self.pos_history_next = np.zeros(3)
+        self.pos_history_last = np.zeros(3)
+        self.pos_history_last_last = np.zeros(3)
+        self.last_action = np.zeros(2)
+
         self.asmc = UsvAsmc()
         self.reset()
 
@@ -124,7 +131,6 @@ class UsvAsmcCaEnv(gym.Env):
         return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min
 
     def _normalize_state(self, state):
-
 
         u = self._normalize_val(u, self.min_u, self.max_u)
         v = self._normalize_val(v, self.min_v, self.max_v)
@@ -163,6 +169,8 @@ class UsvAsmcCaEnv(gym.Env):
         self.debug_vars['action0'] = action[0]
         self.debug_vars['action1'] = action[1]
 
+        self.pos_history_pos = np.array(self.position)
+
         if self.use_kinematic_model:
             # Update rotational vel
             T = 1 / 2
@@ -187,7 +195,8 @@ class UsvAsmcCaEnv(gym.Env):
         u, v, r = upsilon
         self.velocity = upsilon
         self.position = eta
-        x,y,psi = self.position
+        x, y, psi = self.position
+        self.pos_history_next = np.array(self.position)
 
         # Compute collision
         done = False
@@ -230,25 +239,38 @@ class UsvAsmcCaEnv(gym.Env):
         if distance.size == 0:
             distance = np.array([1e10])
 
-        reward, info = self.compute_reward(np.min(distance), vec_to_targ, u, v, arrived, psi)
+        reward, info = self.compute_reward(np.min(distance),
+                                           vec_to_targ,
+                                           u,
+                                           v,
+                                           arrived,
+                                           self.pos_history_last_last,
+                                           self.pos_history_pos,
+                                           self.pos_history_next,
+                                           np.array(action_in) - np.array(self.last_action))
         self.total_reward += reward
         self.debug_vars['reward'] = reward
 
         self.last_velocity = self.velocity
 
         self.state = np.hstack(
-            (np.cos(angle_to_target) / np.pi, np.sin(angle_to_target) / np.pi, u / self.max_u, v / self.max_v, r / self.max_r, action_in, sensors[:,1]))
+            (np.cos(angle_to_target) / np.pi, np.sin(angle_to_target) / np.pi, u / self.max_u, v / self.max_v,
+             r / self.max_r, action_in, sensors[:, 1]))
         self.debug_vars['p'] = ", ".join([str(np.round(p, 3)) for p in self.position])
 
         if arrived:
             done = True
 
-        #if collision:
+        # if collision:
         #    done = True
 
         # Reshape state
         self.state = self.state.reshape(self.observation_space.shape[0]).astype(np.float32)
         info['completed'] = arrived
+
+        self.pos_history_last_last = self.pos_history_last
+        self.pos_history_last = self.pos_history_pos
+        self.last_action = action_in
 
         return self.state, reward, done, info
 
@@ -257,6 +279,7 @@ class UsvAsmcCaEnv(gym.Env):
         y = np.random.uniform(low=-5.0, high=5.0)
         theta = np.random.uniform(low=-np.pi, high=np.pi)
         self.position = [x, y, theta]
+        self.last_pos = np.array([x, y, theta])
 
         # number of obstacles 
         self.num_obs = np.random.randint(low=10, high=20)
@@ -293,7 +316,8 @@ class UsvAsmcCaEnv(gym.Env):
         self.num_obs -= elems_to_delete.size
 
         distance = np.hypot(self.obs_x - self.target_point[0],
-                            self.obs_y - self.target_point[1]) - self.obs_r - self.boat_radius - (self.safety_radius + 0.35)
+                            self.obs_y - self.target_point[1]) - self.obs_r - self.boat_radius - (
+                               self.safety_radius + 0.35)
         distance = distance.reshape(-1)
         elems_to_delete = np.flatnonzero(distance < 0)
         self.obs_x = np.delete(self.obs_x, elems_to_delete).reshape(-1, 1)
@@ -345,7 +369,7 @@ class UsvAsmcCaEnv(gym.Env):
 
                 if obs_x < 0:
                     # Obstacle is behind sensor
-                    #sensors[i][1] = sensor_max_range
+                    # sensors[i][1] = sensor_max_range
                     continue
 
                 delta = (radius[obs_idx] * radius[obs_idx]) - (obs_y * obs_y)
@@ -396,7 +420,16 @@ class UsvAsmcCaEnv(gym.Env):
         denominator = np.sum(1 + np.abs(sensors[:, 0] * gamma_theta))
         return -(numerator / denominator)
 
-    def compute_reward(self, distance_to_obs, vec_to_targ, u, v, arrived, psi):
+    def compute_reward(self,
+                       distance_to_obs,
+                       vec_to_targ,
+                       u,
+                       v,
+                       arrived,
+                       last_pos,
+                       pos,
+                       pos_update,
+                       action_delta):
         info = {}
 
         soft_margin = 1
@@ -411,10 +444,10 @@ class UsvAsmcCaEnv(gym.Env):
             collision = True
         elif hard_margin < distance_to_obs < soft_margin:
             # hard margin
-            r_margin = -c2_Margin/distance_to_obs
+            r_margin = -c2_Margin / distance_to_obs
         elif distance_to_obs < soft_margin:
             # soft margin
-            r_margin = -c1_Margin * (soft_margin - distance_to_obs)/(soft_margin - hard_margin)
+            r_margin = -c1_Margin * (soft_margin - distance_to_obs) / (soft_margin - hard_margin)
 
         r_goal = 0
         if collision:
@@ -426,17 +459,28 @@ class UsvAsmcCaEnv(gym.Env):
             r_towards = 0
         else:
             vel = np.array([u, v])
-            vel = vel / np.sqrt(np.sum(vel**2))
+            vel = vel / np.sqrt(np.sum(vel ** 2))
             self.debug_vars['vel.x'] = vel[0]
             self.debug_vars['vel.y'] = vel[1]
             r_towards = 1 - distance.cosine(vec_to_targ, vel)
 
-        reward = r_margin + r_goal + r_towards - 0.7
+        c3_smooth = 200
+        c4_smooth = 100
+        r_smooth = -c3_smooth * \
+                   (np.linalg.norm(pos - last_pos) + np.linalg.norm(pos_update - pos) - np.linalg.norm(
+                       pos_update - last_pos)) - c4_smooth * np.linalg.norm(last_pos - 2 * pos + pos_update)
+        r_smooth = 0
+
+        r_action = -np.sum(np.exp(np.abs(action_delta / 0.75)) - 1)
+
+        reward = r_margin + r_goal + r_towards + r_smooth + r_action - 0.7
 
         self.debug_vars['r'] = reward
         self.debug_vars['r_margin'] = r_margin
         self.debug_vars['r_goal'] = r_goal
         self.debug_vars['r_towards'] = r_towards
+        self.debug_vars['r_smooth'] = r_smooth
+        self.debug_vars['r_action'] = r_action
 
         self.last_reward = reward
         return reward, info
