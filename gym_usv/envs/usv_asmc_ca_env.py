@@ -82,9 +82,10 @@ class UsvAsmcCaEnv(gym.Env):
         self.max_r = 2.
 
         self.debug_vars = {}
+        self.plot_vars = {}
 
         # Distance to target, angle between real and target, long velocity, normal vel, ang accel, sensor data
-        self.state_length = 7 + self.sensor_num
+        self.state_length = 10 + self.sensor_num
 
         # Min and max state vectors
         self.low_state = np.full(self.state_length, -1.0)
@@ -110,6 +111,7 @@ class UsvAsmcCaEnv(gym.Env):
         self.pos_history_last = np.zeros(3)
         self.pos_history_last_last = np.zeros(3)
         self.last_action = np.zeros(2)
+        self.start_position = np.zeros(3)
 
         self.asmc = UsvAsmc()
         self.reset()
@@ -247,7 +249,8 @@ class UsvAsmcCaEnv(gym.Env):
                                            self.pos_history_last_last,
                                            self.pos_history_pos,
                                            self.pos_history_next,
-                                           np.array(action_in) - np.array(self.last_action))
+                                           np.array(action_in) - np.array(self.last_action),
+                                           np.array(action))
         self.total_reward += reward
         self.debug_vars['reward'] = reward
 
@@ -255,7 +258,7 @@ class UsvAsmcCaEnv(gym.Env):
 
         self.state = np.hstack(
             (np.cos(angle_to_target) / np.pi, np.sin(angle_to_target) / np.pi, u / self.max_u, v / self.max_v,
-             r / self.max_r, action_in, sensors[:, 1]))
+             r / self.max_r, action_in, self.pos_history_last_last, sensors[:, 1]))
         self.debug_vars['p'] = ", ".join([str(np.round(p, 3)) for p in self.position])
 
         if arrived:
@@ -272,13 +275,22 @@ class UsvAsmcCaEnv(gym.Env):
         self.pos_history_last = self.pos_history_pos
         self.last_action = action_in
 
+        if np.max(np.abs(self.position)) > 100:
+            done = True
+
+        self.plot_vars['action0'] = action_in[0]
+        self.plot_vars['action1'] = action_in[1]
+
         return self.state, reward, done, info
 
     def reset(self):
+        if self.renderer:
+            self.renderer.reset()
         x = np.random.uniform(low=-2.5, high=2.5)
         y = np.random.uniform(low=-5.0, high=5.0)
         theta = np.random.uniform(low=-np.pi, high=np.pi)
         self.position = [x, y, theta]
+        self.start_position = self.position
         self.last_pos = np.array([x, y, theta])
 
         # number of obstacles 
@@ -396,6 +408,8 @@ class UsvAsmcCaEnv(gym.Env):
             self.obs_r,
             self.debug_vars,
             show_debug_vars,
+            self.plot_vars,
+            True,
             mode
         )
 
@@ -429,7 +443,8 @@ class UsvAsmcCaEnv(gym.Env):
                        last_pos,
                        pos,
                        pos_update,
-                       action_delta):
+                       action_delta,
+                       action):
         info = {}
 
         soft_margin = 1
@@ -464,16 +479,22 @@ class UsvAsmcCaEnv(gym.Env):
             self.debug_vars['vel.y'] = vel[1]
             r_towards = 1 - distance.cosine(vec_to_targ, vel)
 
-        c3_smooth = 200
-        c4_smooth = 100
+        c3_smooth = 20
+        c4_smooth = 10
         r_smooth = -c3_smooth * \
                    (np.linalg.norm(pos - last_pos) + np.linalg.norm(pos_update - pos) - np.linalg.norm(
                        pos_update - last_pos)) - c4_smooth * np.linalg.norm(last_pos - 2 * pos + pos_update)
+
+        r_action = -np.sum(np.exp(np.abs(action_delta / 2.5)) - 1)
+        #r_action += -(np.exp(np.abs(action[1])/1.0) - 1)
+        r_action *= 0.2
+        self.plot_vars['r_action'] = r_action / 5
+        self.plot_vars['r_smooth'] = r_smooth / 5
+
         r_smooth = 0
+        #r_action = 0
 
-        r_action = -np.sum(np.exp(np.abs(action_delta / 0.75)) - 1)
-
-        reward = r_margin + r_goal + r_towards + r_smooth + r_action - 0.7
+        reward = r_margin + r_goal + r_towards * 2.0 + r_smooth + r_action - 0.7
 
         self.debug_vars['r'] = reward
         self.debug_vars['r_margin'] = r_margin

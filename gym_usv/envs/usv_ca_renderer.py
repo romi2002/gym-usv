@@ -1,5 +1,10 @@
+import collections
+
 import numpy as np
 import pygame
+from collections import deque, defaultdict
+
+from gym_usv.utils.pygame_plotter import render_plot
 
 
 class UsvCaRenderer():
@@ -20,7 +25,14 @@ class UsvCaRenderer():
         self.screen = None
         self.clock = pygame.time.Clock()
         pygame.font.init()
+
+        self.plot_var_n = 100
+        self.plot_var_data = defaultdict(lambda: deque(maxlen=self.plot_var_n))
+
         self.font = pygame.font.SysFont('arial', 24)
+
+    def reset(self):
+        self.plot_var_data = defaultdict(lambda: deque(maxlen=self.plot_var_n))
 
     def _draw_sensors(self, surf, position, sensors):
         x, y, psi = position
@@ -125,10 +137,14 @@ class UsvCaRenderer():
                obstacle_radius,
                debug_vars,
                show_debug_vars,
+               plot_vars=None,
+               show_plot_vars=True,
                mode='human',
                render_fps=60
                ):
 
+        if plot_vars is None:
+            plot_vars = {}
         if self.screen is None and mode == "human":
             pygame.init()
             pygame.display.init()
@@ -162,6 +178,18 @@ class UsvCaRenderer():
                     text_img = self.font.render(f"{key}: {round(var, 4)}", True, (0, 0, 0))
                 surf.blit(text_img, text_start_pos)
                 text_start_pos = text_start_pos[0], text_start_pos[1] + 30
+
+        plot_start_pos = (200, 0)
+        plot_size = (200, 100)
+        if show_plot_vars:
+            for key, data in plot_vars.items():
+                self.plot_var_data[key].append(data)
+                render_plot(self.plot_var_data[key],
+                            key,
+                            surf,
+                            plot_start_pos,
+                            plot_size)
+                plot_start_pos = (plot_start_pos[0], plot_start_pos[1] + plot_size[1] + 10)
 
         if mode == "human":
             self.screen.blit(surf, (0, 0))
