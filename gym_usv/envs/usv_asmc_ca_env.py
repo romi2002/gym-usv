@@ -12,19 +12,19 @@ import numpy as np
 from gym import spaces
 from numba import njit
 from scipy.spatial import distance
-
+from collections import deque
 from gym_usv.control import UsvAsmc
 from .usv_ca_renderer import UsvCaRenderer
-
+from scipy.stats import linregress
 
 class UsvAsmcCaEnv(gym.Env):
     metadata = {'render.modes': ['human', 'rgb_array'], 'render_fps': 60}
 
     def __init__(self, config=None):
         # Integral step (or derivative) for 100 Hz
-        self.integral_step = 0.075
+        self.integral_step = (1/20)
 
-        self.place_obstacles = True
+        self.place_obstacles = False
         self.use_kinematic_model = True
 
         # Overall vector variables
@@ -84,8 +84,11 @@ class UsvAsmcCaEnv(gym.Env):
         self.debug_vars = {}
         self.plot_vars = {}
 
+        self.action_history_len = 1
+        self.action_history = None
+
         # Distance to target, angle between real and target, long velocity, normal vel, ang accel, sensor data
-        self.state_length = 10 + self.sensor_num
+        self.state_length = 5 + self.action_history_len * 2 + self.sensor_num
 
         # Min and max state vectors
         self.low_state = np.full(self.state_length, -1.0)
@@ -112,6 +115,7 @@ class UsvAsmcCaEnv(gym.Env):
         self.pos_history_last_last = np.zeros(3)
         self.last_action = np.zeros(2)
         self.start_position = np.zeros(3)
+        self.action_vel_accel = np.zeros((2, 2)) # a', a''
 
         self.asmc = UsvAsmc()
         self.reset()
@@ -241,6 +245,12 @@ class UsvAsmcCaEnv(gym.Env):
         if distance.size == 0:
             distance = np.array([1e10])
 
+        # Compute action acceleration and velocity
+        last_velocity = self.action_vel_accel[:, 0].copy()
+        self.action_vel_accel[:, 0] = np.array(action_in) - self.last_action
+        self.action_vel_accel[:, 1] = self.action_vel_accel[:, 0] - last_velocity
+
+
         reward, info = self.compute_reward(np.min(distance),
                                            vec_to_targ,
                                            u,
@@ -256,9 +266,11 @@ class UsvAsmcCaEnv(gym.Env):
 
         self.last_velocity = self.velocity
 
+        self.action_history.append(action_in)
+
         self.state = np.hstack(
-            (np.cos(angle_to_target) / np.pi, np.sin(angle_to_target) / np.pi, u / self.max_u, v / self.max_v,
-             r / self.max_r, action_in, self.pos_history_last_last, sensors[:, 1]))
+            (np.cos(angle_to_target) / 1, np.sin(angle_to_target) / 1, u / self.max_u, v / self.max_v,
+             r / self.max_r, np.concatenate(self.action_history).ravel(), sensors[:, 1]))
         self.debug_vars['p'] = ", ".join([str(np.round(p, 3)) for p in self.position])
 
         if arrived:
@@ -292,6 +304,9 @@ class UsvAsmcCaEnv(gym.Env):
         self.position = [x, y, theta]
         self.start_position = self.position
         self.last_pos = np.array([x, y, theta])
+        self.action_vel_accel = np.zeros((2, 2))  # a', a''
+
+        self.action_history = deque([np.zeros(2)] * self.action_history_len, maxlen=self.action_history_len)
 
         # number of obstacles 
         self.num_obs = np.random.randint(low=10, high=20)
@@ -447,8 +462,8 @@ class UsvAsmcCaEnv(gym.Env):
                        action):
         info = {}
 
-        soft_margin = 1
-        hard_margin = 0.5
+        soft_margin = 1.75
+        hard_margin = 0.75
         collision = False
         r_margin = 0
         c1_Margin = 1
@@ -479,31 +494,14 @@ class UsvAsmcCaEnv(gym.Env):
             self.debug_vars['vel.y'] = vel[1]
             r_towards = 1 - distance.cosine(vec_to_targ, vel)
 
-        c3_smooth = 20
-        c4_smooth = 10
-        r_smooth = -c3_smooth * \
-                   (np.linalg.norm(pos - last_pos) + np.linalg.norm(pos_update - pos) - np.linalg.norm(
-                       pos_update - last_pos)) - c4_smooth * np.linalg.norm(last_pos - 2 * pos + pos_update)
+        action_delta = action - self.action_history[0]
+        action_delta_r = np.sum(-np.exp(action_delta * np.array([1, 1]))) + 2
 
-        r_action = -np.sum(np.exp(np.abs(action_delta / 2.5)) - 1)
-        #r_action += -(np.exp(np.abs(action[1])/1.0) - 1)
-        r_action *= 0.2
-        self.plot_vars['r_action'] = r_action / 5
-        self.plot_vars['r_smooth'] = r_smooth / 5
+        action_r = (action[0] - 1) * 0.13 + -np.abs(action[1]) * 0.125
 
-        r_smooth = 0
-        #r_action = 0
-
-        reward = r_margin + r_goal + r_towards * 2.0 + r_smooth + r_action - 0.7
-
-        self.debug_vars['r'] = reward
-        self.debug_vars['r_margin'] = r_margin
-        self.debug_vars['r_goal'] = r_goal
-        self.debug_vars['r_towards'] = r_towards
-        self.debug_vars['r_smooth'] = r_smooth
-        self.debug_vars['r_action'] = r_action
-
-        self.last_reward = reward
+        info = {}
+        info['r_std_dev'] = action_delta_r
+        reward = r_margin + r_goal + r_towards + action_delta_r + action_r + action_delta_r
         return reward, info
 
     def body_to_path(self, x2, y2, alpha):
