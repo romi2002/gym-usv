@@ -1,4 +1,4 @@
-from gym.envs.registration import register
+from gymnasium import register
 
 register(
     id='usv-asmc-v0',
@@ -18,5 +18,5 @@ register(
 register(
     id='usv-asmc-ca-v0',
     entry_point='gym_usv.envs:UsvAsmcCaEnv',
-    max_episode_steps=700,
+    max_episode_steps=200,
 )

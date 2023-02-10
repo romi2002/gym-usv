@@ -13,8 +13,8 @@ def render_plot(data: deque,
                 size: Tuple[int, int],
                 y_lim: Tuple[float, float] = (-1.0, 1.0)):
     pygame.draw.rect(surface, (10,10,10), (start_coords, size))
-    text_img = font.render(name, True, (0, 255, 255))
-    surface.blit(text_img, start_coords)
+    #text_img = font.render(name, True, (0, 255, 255))
+    #surface.blit(text_img, start_coords)
     x_inc = size[0] / len(data)
     y_scale = size[1] / (y_lim[0] - y_lim[1])
     y_offset = start_coords[1] + size[1] / 2

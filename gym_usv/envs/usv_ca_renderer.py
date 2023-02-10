@@ -29,6 +29,8 @@ class UsvCaRenderer():
         self.plot_var_n = 100
         self.plot_var_data = defaultdict(lambda: deque(maxlen=self.plot_var_n))
 
+        pygame.init()
+        pygame.font.init()
         self.font = pygame.font.SysFont('arial', 24)
 
     def reset(self):
@@ -145,8 +147,9 @@ class UsvCaRenderer():
 
         if plot_vars is None:
             plot_vars = {}
+        #if not pygame.get_init():
+        #    pygame.init()
         if self.screen is None and mode == "human":
-            pygame.init()
             pygame.display.init()
             self.screen = pygame.display.set_mode(self.screen_dim)
 
@@ -168,9 +171,10 @@ class UsvCaRenderer():
         # pygame.draw.circle(self.surf, (255, 0, 0), safety, safety_radius, width=3)
 
         surf = pygame.transform.flip(surf, False, True)
+        #font = pygame.font.SysFont('arial', 24)
 
         text_start_pos = (20, 20)
-        if show_debug_vars:
+        if show_debug_vars and False:
             for key, var in debug_vars.items():
                 if isinstance(var, str):
                     text_img = self.font.render(f"{key}: {var}", True, (0, 0, 0))

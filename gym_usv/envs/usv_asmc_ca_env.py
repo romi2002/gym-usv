@@ -7,9 +7,9 @@ Adaptive Sliding Mode Controller to train collision
 avoidance on the OpenAI Gym library.
 """
 
-import gym
+import gymnasium
+from gymnasium import spaces
 import numpy as np
-from gym import spaces
 from numba import njit
 from scipy.spatial import distance
 from collections import deque
@@ -17,10 +17,11 @@ from gym_usv.control import UsvAsmc
 from .usv_ca_renderer import UsvCaRenderer
 from scipy.stats import linregress
 
-class UsvAsmcCaEnv(gym.Env):
+class UsvAsmcCaEnv(gymnasium.Env):
     metadata = {'render.modes': ['human', 'rgb_array'], 'render_fps': 60}
 
-    def __init__(self, config=None):
+    def __init__(self, render_mode="rgb_array"):
+        self.render_mode = render_mode
         # Integral step (or derivative) for 100 Hz
         self.integral_step = (1/20)
 
@@ -84,7 +85,7 @@ class UsvAsmcCaEnv(gym.Env):
         self.debug_vars = {}
         self.plot_vars = {}
 
-        self.action_history_len = 1
+        self.action_history_len = 5
         self.action_history = None
 
         # Distance to target, angle between real and target, long velocity, normal vel, ang accel, sensor data
@@ -206,6 +207,7 @@ class UsvAsmcCaEnv(gym.Env):
 
         # Compute collision
         done = False
+        truncated = False
 
         distance = np.hypot(self.obs_x - eta[0],
                             self.obs_y - eta[1]) - self.obs_r - self.boat_radius - self.safety_radius
@@ -269,15 +271,15 @@ class UsvAsmcCaEnv(gym.Env):
         self.action_history.append(action_in)
 
         self.state = np.hstack(
-            (np.cos(angle_to_target) / 1, np.sin(angle_to_target) / 1, u / self.max_u, v / self.max_v,
+            (vec_to_targ[0], vec_to_targ[1], u / self.max_u, v / self.max_v,
              r / self.max_r, np.concatenate(self.action_history).ravel(), sensors[:, 1]))
         self.debug_vars['p'] = ", ".join([str(np.round(p, 3)) for p in self.position])
 
         if arrived:
             done = True
 
-        # if collision:
-        #    done = True
+        if collision:
+            done = True
 
         # Reshape state
         self.state = self.state.reshape(self.observation_space.shape[0]).astype(np.float32)
@@ -289,13 +291,15 @@ class UsvAsmcCaEnv(gym.Env):
 
         if np.max(np.abs(self.position)) > 100:
             done = True
+            truncated = True
 
         self.plot_vars['action0'] = action_in[0]
         self.plot_vars['action1'] = action_in[1]
 
-        return self.state, reward, done, info
+        return self.state, reward, done, truncated, info
 
-    def reset(self):
+    def reset(self, seed=None, options=None):
+        super().reset(seed=seed)
         if self.renderer:
             self.renderer.reset()
         x = np.random.uniform(low=-2.5, high=2.5)
@@ -355,8 +359,8 @@ class UsvAsmcCaEnv(gym.Env):
 
         self.state = np.zeros(self.state_length)
 
-        state, _, _, _ = self.step([-1, 0])
-        return state
+        state, _, _, _, _ = self.step([-1, 0])
+        return state, {}
 
     @staticmethod
     def _compute_sensor_measurments(position, sensor_count, sensor_max_range, radius, lidar_resolution, posx, posy,
@@ -410,7 +414,7 @@ class UsvAsmcCaEnv(gym.Env):
         return new_distances
 
     ## TODO Add screen space transformation functions
-    def render(self, mode='human', info=None, draw_obstacles=True, show_debug_vars=True):
+    def render(self, info=None, draw_obstacles=True, show_debug_vars=True):
         if self.renderer is None:
             self.renderer = UsvCaRenderer()
 
@@ -425,7 +429,7 @@ class UsvAsmcCaEnv(gym.Env):
             show_debug_vars,
             self.plot_vars,
             True,
-            mode
+            self.render_mode
         )
 
     def close(self):
@@ -492,16 +496,22 @@ class UsvAsmcCaEnv(gym.Env):
             vel = vel / np.sqrt(np.sum(vel ** 2))
             self.debug_vars['vel.x'] = vel[0]
             self.debug_vars['vel.y'] = vel[1]
-            r_towards = 1 - distance.cosine(vec_to_targ, vel)
+            r_towards = 1 - (distance.cosine(vec_to_targ, vel) / 0.1)
+            r_towards = np.clip(r_towards, -1, 1)
 
-        action_delta = action - self.action_history[0]
-        action_delta_r = np.sum(-np.exp(action_delta * np.array([1, 1]))) + 2
+        self.plot_vars['r_towards'] = r_towards
 
-        action_r = (action[0] - 1) * 0.13 + -np.abs(action[1]) * 0.125
+        action_delta = action - self.action_history[-1]
+        action_delta_r = -np.sum((np.abs(action_delta) * np.array([0.35, 0.35])))
+
+        #action_r = (action[0] - 1) * 0.13 - np.abs(action[1]) * 0.125
+        action_r = (1 - np.abs(action[1])) * 0.25 + action[0] * 0.1
 
         info = {}
         info['r_std_dev'] = action_delta_r
-        reward = r_margin + r_goal + r_towards + action_delta_r + action_r + action_delta_r
+        reward = r_margin + r_goal + r_towards * 2.0 + action_delta_r + action_r * 0.1 + action_delta_r
+        reward = r_towards + action_r + action_delta_r
+        self.plot_vars['reward'] = reward
         return reward, info
 
     def body_to_path(self, x2, y2, alpha):
