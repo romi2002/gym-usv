@@ -168,7 +168,7 @@ class UsvCaRenderer():
         #font = pygame.font.SysFont('arial', 24)
 
         # Draw target point
-        x_t, y_t = target_point
+        x_t, y_t, _ = target_point
         pygame.draw.circle(surf, (0, 255, 0), ((y_t - self.min_y) * self.scale, (x_t - self.min_x) * self.scale),
                            radius=10)
 
