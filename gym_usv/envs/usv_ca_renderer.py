@@ -160,18 +160,19 @@ class UsvCaRenderer():
         self._draw_sensors(surf, position, sensors)
         self._draw_boat(surf, position)
 
-        # Draw target point
-        x_t, y_t = target_point
-        pygame.draw.circle(surf, (0, 255, 0), ((y_t - self.min_y) * self.scale, (x_t - self.min_x) * self.scale),
-                           radius=10)
-
         # TODO Draw safety radius
         # safety_radius = (self.boat_radius + self.safety_radius) * scale
         # safety = ((y - self.min_y) * scale, (x - self.min_x) * scale)
         # pygame.draw.circle(self.surf, (255, 0, 0), safety, safety_radius, width=3)
 
-        surf = pygame.transform.flip(surf, False, True)
         #font = pygame.font.SysFont('arial', 24)
+
+        # Draw target point
+        x_t, y_t = target_point
+        pygame.draw.circle(surf, (0, 255, 0), ((y_t - self.min_y) * self.scale, (x_t - self.min_x) * self.scale),
+                           radius=10)
+
+        surf = pygame.transform.flip(surf, False, True)
 
         text_start_pos = (20, 20)
         if show_debug_vars and False:

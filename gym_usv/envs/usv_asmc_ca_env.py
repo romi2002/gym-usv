@@ -42,7 +42,7 @@ class UsvAsmcCaEnv(gymnasium.Env):
         self.last_velocity = np.zeros(3)
         self.position = np.zeros(3)
 
-        self.sensor_num = 50
+        self.sensor_num = 25
         # angle, distance
         self.sensors = np.zeros((self.sensor_num, 2))
         self.sensor_span = (2 / 3) * (2 * np.pi)
@@ -85,11 +85,12 @@ class UsvAsmcCaEnv(gymnasium.Env):
         self.debug_vars = {}
         self.plot_vars = {}
 
-        self.action_history_len = 5
+        self.action_history_len = 1
         self.action_history = None
+        self.last_angle_to_target = 0
 
         # Distance to target, angle between real and target, long velocity, normal vel, ang accel, sensor data
-        self.state_length = 5 + self.action_history_len * 2 + self.sensor_num
+        self.state_length = 2 + self.action_history_len * 2
 
         # Min and max state vectors
         self.low_state = np.full(self.state_length, -1.0)
@@ -233,6 +234,10 @@ class UsvAsmcCaEnv(gymnasium.Env):
         distance_to_target = np.hypot(self.position[0] - self.target_point[0], self.position[1] - self.target_point[1])
         angle_to_target = self._wrap_angle(
             np.arctan2(self.target_point[1] - self.position[1], self.target_point[0] - self.position[0]) - psi)
+        #print(f"Angle to target: {angle_to_target} Psi: {psi}")
+        #print(f"target: {self.target_point} position: {self.position}")
+        #self.plot_vars['angle_to_target'] = angle_to_target
+        #print(np.cos(angle_to_target))
         normal_velocity = np.hypot(u, v)  # TODO
         angular_acceleration = self.velocity[2] - self.last_velocity[2]
         self.debug_vars['dist'] = distance_to_target
@@ -254,7 +259,9 @@ class UsvAsmcCaEnv(gymnasium.Env):
 
 
         reward, info = self.compute_reward(np.min(distance),
+                                           distance_to_target,
                                            vec_to_targ,
+                                           psi,
                                            u,
                                            v,
                                            arrived,
@@ -262,17 +269,23 @@ class UsvAsmcCaEnv(gymnasium.Env):
                                            self.pos_history_pos,
                                            self.pos_history_next,
                                            np.array(action_in) - np.array(self.last_action),
-                                           np.array(action))
+                                           np.array(action_in))
+
+        #reward = self.test_reward_function(angle_to_target, self.last_angle_to_target, self.action_history)
+        print(reward)
         self.total_reward += reward
         self.debug_vars['reward'] = reward
 
         self.last_velocity = self.velocity
+        self.last_action = action_in.copy()
 
         self.action_history.append(action_in)
 
-        self.state = np.hstack(
-            (vec_to_targ[0], vec_to_targ[1], u / self.max_u, v / self.max_v,
-             r / self.max_r, np.concatenate(self.action_history).ravel(), sensors[:, 1]))
+        self.state = np.hstack((
+            np.array([angle_to_target, self.last_angle_to_target]), np.concatenate(self.action_history).ravel()
+        ))
+        self.last_angle_to_target = angle_to_target
+
         self.debug_vars['p'] = ", ".join([str(np.round(p, 3)) for p in self.position])
 
         if arrived:
@@ -287,7 +300,6 @@ class UsvAsmcCaEnv(gymnasium.Env):
 
         self.pos_history_last_last = self.pos_history_last
         self.pos_history_last = self.pos_history_pos
-        self.last_action = action_in
 
         if np.max(np.abs(self.position)) > 100:
             done = True
@@ -455,7 +467,9 @@ class UsvAsmcCaEnv(gymnasium.Env):
 
     def compute_reward(self,
                        distance_to_obs,
+                       distance_to_target,
                        vec_to_targ,
+                       psi,
                        u,
                        v,
                        arrived,
@@ -493,26 +507,49 @@ class UsvAsmcCaEnv(gymnasium.Env):
             r_towards = 0
         else:
             vel = np.array([u, v])
+            # vel = np.array([u, v])
             vel = vel / np.sqrt(np.sum(vel ** 2))
-            self.debug_vars['vel.x'] = vel[0]
-            self.debug_vars['vel.y'] = vel[1]
-            r_towards = 1 - (distance.cosine(vec_to_targ, vel) / 0.1)
-            r_towards = np.clip(r_towards, -1, 1)
+            # self.debug_vars['vel.x'] = vel[0]
+            # self.debug_vars['vel.y'] = vel[1]
+            r_towards = -distance.cosine(vec_to_targ, vel) + 1
+            r_towards = np.exp(10 * -np.abs(r_towards - 1))
+            #r_towards = np.sign(r_towards) * (r_towards**2/0.5)
+            #r_towards = np.cos(angle_to_targ)
+            r_towards = np.clip(r_towards, -1, 1) * 0.7
+            #self.plot_vars['r_towards'] = r_towards
 
-        self.plot_vars['r_towards'] = r_towards
+        def test_r_func(x, k):
+            return max(np.exp(-k * np.abs(x)), np.exp(-k * x ** 2))
 
-        action_delta = action - self.action_history[-1]
-        action_delta_r = -np.sum((np.abs(action_delta) * np.array([0.35, 0.35])))
+        k = 2500/6
+        action_delta_r = np.sum(np.array([test_r_func(action_delta[0], k),
+                                          test_r_func(action_delta[1], k)])) - 2
+        #action_delta_r = 0
 
         #action_r = (action[0] - 1) * 0.13 - np.abs(action[1]) * 0.125
-        action_r = (1 - np.abs(action[1])) * 0.25 + action[0] * 0.1
+        action_r = (1 - np.abs(action[1])) * 0.24 + action[0] * 0.15
+        #action_r = 0
+        action_r = test_r_func(action[1], 1000) + test_r_func(action[0] - 1, 1000)
+        action_r /= 2
+
+        r_distance = test_r_func(distance_to_target / np.hypot(
+            self.max_x, self.max_y
+        ), 75)
 
         info = {}
         info['r_std_dev'] = action_delta_r
         reward = r_margin + r_goal + r_towards * 2.0 + action_delta_r + action_r * 0.1 + action_delta_r
-        reward = r_towards + action_r + action_delta_r
+        reward = r_towards + action_r + action_delta_r + r_distance - 0.45 + r_margin + r_goal
+        #print(reward)
         self.plot_vars['reward'] = reward
+        #self.plot_vars['reward'] = reward
         return reward, info
+
+    def test_reward_function(self, angle_to_target, last_angle_to_target, action_history):
+        delta_ang = angle_to_target - last_angle_to_target
+        reward = 1 - (0.2 * angle_to_target ** 2 + 0.1 * delta_ang ** 2 + 0.001 * action_history[-1][1] ** 2)
+        reward = 1 - angle_to_target
+        return reward
 
     def body_to_path(self, x2, y2, alpha):
         '''
