@@ -99,6 +99,7 @@ class UsvCaRenderer():
         for i in range(len(obstacle_x)):
             obs_points = [((obstacle_y[i][0] - self.min_y) * self.scale, (obstacle_x[i][0] - self.min_x) * self.scale)]
             pygame.draw.circle(surf, (0, 0, 255), obs_points[0], obstacle_radius[i][0] * self.scale)
+            pygame.draw.circle(surf, (0,0, 255), obs_points[0], obstacle_radius[i][0] * self.scale + 1)
 
     def _draw_highlighted_sectors(self, surf, sensor_max_range, sensor_span, sector_num, position):
         x, y, psi = position

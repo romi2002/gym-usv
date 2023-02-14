@@ -42,7 +42,7 @@ class UsvAsmcCaEnv(gymnasium.Env):
         self.last_velocity = np.zeros(3)
         self.position = np.zeros(3)
 
-        self.sensor_num = 25
+        self.sensor_num = 1
         # angle, distance
         self.sensors = np.zeros((self.sensor_num, 2))
         self.sensor_span = (2 / 3) * (2 * np.pi)
@@ -282,10 +282,9 @@ class UsvAsmcCaEnv(gymnasium.Env):
 
         if arrived:
             done = True
-            reward += 1000
 
-        #if collision:
-            #done = True
+        if collision:
+            done = True
 
         # Reshape state
         self.state = self.state.reshape(self.observation_space.shape[0]).astype(np.float32)
@@ -315,7 +314,7 @@ class UsvAsmcCaEnv(gymnasium.Env):
         self.action_history = deque([np.zeros(2)] * self.action_history_len, maxlen=self.action_history_len)
 
         # number of obstacles 
-        self.num_obs = np.clip(int(np.random.normal(loc=15, scale=5)), 0, 30)
+        self.num_obs = np.clip(int(np.random.normal(loc=80, scale=5)), 0, 30)
         if not self.place_obstacles:
             self.num_obs = 0
 
@@ -323,16 +322,23 @@ class UsvAsmcCaEnv(gymnasium.Env):
         self.target_point = np.hstack([self.target_point, np.zeros(1)]) # Target angle is always 0
 
         # TODO maybe change distribution
-        min_radius = 1.0
-        max_radius = 1.75
+        min_radius = 0.75
+        max_radius = 1.25
         obstacles = np.random.uniform(
             low=np.tile((self.min_x, self.min_y, min_radius), (self.num_obs, 1)).T,
             high=np.tile((self.max_x, self.max_y, max_radius), (self.num_obs, 1)).T,
             size=(3, self.num_obs)).T
+
+        obs_pos = np.random.normal(loc=(np.array(self.target_point[:2]) + np.array(self.start_position[:2])) / 2, scale=10.0, size=(self.num_obs, 2))
+        obs_size = np.random.uniform(low=min_radius, high=max_radius, size=self.num_obs)
+
         self.num_obs = len(obstacles)
         self.obs_x = obstacles[:, 0]
         self.obs_y = obstacles[:, 1]
         self.obs_r = obstacles[:, 2]
+
+        self.obs_x, self.obs_y = obs_pos[:,0], obs_pos[:,1]
+        self.obs_r = obs_size
 
         self.total_reward = 0
 
@@ -473,18 +479,18 @@ class UsvAsmcCaEnv(gymnasium.Env):
         info = {}
         te = tracking_error.copy()
         te[2] = 0
-        r_tracking_error = np.sum(np.abs(te)) * 10.50 + np.abs(angle_to_target / np.pi) * 1.25
-        r_tracking_error = -(r_tracking_error ** 2)
+        r_tracking_error = -np.sum(np.abs(te)) * 5.0 - np.abs(angle_to_target / np.pi) * 0.75
+        #print(r_tracking_error)
         reward = r_tracking_error
         r_delta = np.sum(np.abs(np.array(action) - np.average(action_history, axis=0)))
-        reward -= (r_delta ** 2) * 0.5
-        reward -= np.abs(action[1]) * 0.2
+        reward -= r_delta
+        #reward -= np.abs(action[1]) * 0.2
         #reward -= action[1] ** 2 + (np.abs(action[0]) - 1) ** 2
 
-        reward_zone_r = 6.20
-        punishment_zone_r = 5.5
-        phi_rz = 0.25
-        phi_pz = 0.3
+        reward_zone_r = 5.0
+        punishment_zone_r = 4.5
+        phi_rz = 0.1
+        phi_pz = 0.2
         obs_oa_r = 0
         #print(distance_to_obs)
         if punishment_zone_r < distance_to_obs < reward_zone_r:
@@ -494,7 +500,7 @@ class UsvAsmcCaEnv(gymnasium.Env):
                           1.0 / np.tanh(
                               (distance_to_obs - punishment_zone_r) /
                               (reward_zone_r - punishment_zone_r))).item()
-            obs_oa_r = np.log(obs_oa_r) * 0.1
+            obs_oa_r = np.log(obs_oa_r)
         elif obs_radius < distance_to_obs < punishment_zone_r:
             # Punishment zone
             #print('punish')
@@ -505,14 +511,15 @@ class UsvAsmcCaEnv(gymnasium.Env):
         elif distance_to_obs < obs_radius:
             # Obstacle
             #print('obstacle')
-            obs_oa_r = -50
+            obs_oa_r = -10
 
         #self.plot_vars['obs_oa_r'] = obs_oa_r / 10
         reward += obs_oa_r
-        reward -= 2
+        reward += action[0] ** 2 * 0.05
+        reward -= action[1] ** 2 * 0.15
 
         if arrived:
-            reward += 1000
+            reward += 20
         #print(reward)
 
         self.plot_vars['tracking_error'] = r_tracking_error / 10
