@@ -179,7 +179,7 @@ class UsvAsmcCaEnv(gymnasium.Env):
 
         if self.use_kinematic_model:
             # Update rotational vel
-            T = 1 / 2
+            T = 1 / 10
             dvr = T * (action[1] - r)
             r += dvr
             r = np.clip(r, self.min_r, self.max_r)
@@ -303,6 +303,8 @@ class UsvAsmcCaEnv(gymnasium.Env):
 
         self.plot_vars['action0'] = action_in[0]
         self.plot_vars['action1'] = action_in[1]
+        self.plot_vars['u'] = u
+        self.plot_vars['r'] = r
 
         return self.state, reward, done, truncated, info
 
@@ -549,12 +551,12 @@ class UsvAsmcCaEnv(gymnasium.Env):
         reward -= reward_action
 
         if arrived:
-            reward += 20
+            reward += 200
 
         #print(obs_oa_r)
 
-        self.plot_vars['tracking_error'] = r_tracking_error / 10
-        self.plot_vars['reward'] = reward / 10
+        #self.plot_vars['tracking_error'] = r_tracking_error / 10
+        #self.plot_vars['reward'] = reward / 10
         return reward, info
 
     def test_reward_function(self, angle_to_target, last_angle_to_target, action_history):
