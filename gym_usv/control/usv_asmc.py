@@ -44,7 +44,7 @@ class UsvAsmc():
 
         self.last = np.zeros(9)
         self.aux_vars = np.array([0, 0, 0])
-        self.integral_step = 1 / 15
+        self.integral_step = 0.01
 
     # position = eta
     # velocity = upsilon

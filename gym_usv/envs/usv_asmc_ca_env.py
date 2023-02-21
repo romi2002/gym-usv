@@ -23,10 +23,10 @@ class UsvAsmcCaEnv(gymnasium.Env):
     def __init__(self, render_mode="rgb_array"):
         self.render_mode = render_mode
         # Integral step (or derivative) for 100 Hz
-        self.integral_step = (1/15)
+        self.integral_step = 0.1
 
         self.place_obstacles = True
-        self.use_kinematic_model = True
+        self.use_kinematic_model = False
 
         # Overall vector variables
         self.state = None
@@ -68,8 +68,8 @@ class UsvAsmcCaEnv(gymnasium.Env):
 
         # Min and max actions
         # velocity 
-        self.min_action0 = 0.75
-        self.max_action0 = 2.0
+        self.min_action0 = 1.0
+        self.max_action0 = 1.2
         # angle (change to -pi and pi if necessary)
         self.min_action1 = -np.pi / 3
         self.max_action1 = np.pi / 3
@@ -85,7 +85,7 @@ class UsvAsmcCaEnv(gymnasium.Env):
         self.debug_vars = {}
         self.plot_vars = {}
 
-        self.action_history_len = 1
+        self.action_history_len = 8
         self.action_history = None
 
         # Distance to target, angle between real and target, long velocity, normal vel, ang accel, sensor data
@@ -179,7 +179,7 @@ class UsvAsmcCaEnv(gymnasium.Env):
 
         if self.use_kinematic_model:
             # Update rotational vel
-            T = 1 / 10
+            T = 1 / 2
             dvr = T * (action[1] - r)
             r += dvr
             r = np.clip(r, self.min_r, self.max_r)
@@ -196,7 +196,10 @@ class UsvAsmcCaEnv(gymnasium.Env):
             self.debug_vars['r'] = r
             eta = x, y, psi
         else:
-            eta, upsilon = self.asmc.compute(action, np.array([x, y, psi]), np.array([u, v, r]))
+            eta = self.position
+            upsilon = self.velocity
+            for _ in range(5):
+                eta, upsilon = self.asmc.compute(action, np.array(eta), np.array(upsilon))
 
         u, v, r = upsilon
         self.velocity = upsilon
@@ -270,14 +273,14 @@ class UsvAsmcCaEnv(gymnasium.Env):
             normalized_tracking_error,
             np.hypot(tracking_error[0], tracking_error[1]) / 45,
             angle_to_target / np.pi,
-            np.average(self.action_history, axis=0) / 2,
+            np.average(self.action_history, axis=0) / np.maximum(self.max_action0, self.max_action1),
             nearest_obstacle_distance / div_fac,
             nearest_obstacle_angle / np.pi,
             nearest_obstacle_radius / self.max_r
         ))
 
-        if np.max(np.abs(self.state)) > 1.0:
-            print(self.state)
+        #if np.max(np.abs(self.state)) > 1.0:
+            #print(self.state)
 
         self.action_history.append(action)
 
@@ -515,9 +518,9 @@ class UsvAsmcCaEnv(gymnasium.Env):
         #print(r_tracking_error)
         reward = r_tracking_error
         r_delta = np.sum(np.abs(np.array(action) - np.average(action_history, axis=0)))
-        reward -= r_delta
+        reward -= r_delta * 5
         #reward -= np.abs(action[1]) * 0.2
-        #reward -= action[1] ** 2 + (np.abs(action[0]) - 1) ** 2
+        reward -= action[1] ** 2 * 4 + (np.abs(action[0]) - 1) ** 2
 
         reward_zone_r = 2.25 + obs_radius
         punishment_zone_r = 1.0 + obs_radius
@@ -548,7 +551,7 @@ class UsvAsmcCaEnv(gymnasium.Env):
         #self.plot_vars['obs_oa_r'] = obs_oa_r / 10
         reward += obs_oa_r * 0.5
         reward_action = action[0] ** 2 / 5 + np.abs(action[1]) ** 2 * 1.5
-        reward -= reward_action
+        #reward -= reward_action
 
         if arrived:
             reward += 200
