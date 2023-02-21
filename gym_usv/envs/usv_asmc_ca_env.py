@@ -42,7 +42,7 @@ class UsvAsmcCaEnv(gymnasium.Env):
         self.last_velocity = np.zeros(3)
         self.position = np.zeros(3)
 
-        self.sensor_num = 1
+        self.sensor_num = 32
         # angle, distance
         self.sensors = np.zeros((self.sensor_num, 2))
         self.sensor_span = (2 / 3) * (2 * np.pi)
@@ -89,7 +89,7 @@ class UsvAsmcCaEnv(gymnasium.Env):
         self.action_history = None
 
         # Distance to target, angle between real and target, long velocity, normal vel, ang accel, sensor data
-        self.state_length = 6 + 2 + 3 + 1
+        self.state_length = 10 + self.sensor_num
 
         # Min and max state vectors
         self.low_state = np.full(self.state_length, -1.0)
@@ -254,17 +254,18 @@ class UsvAsmcCaEnv(gymnasium.Env):
         div_fac = self.max_x ** 2 + self.max_y ** 2
         normalized_tracking_error = tracking_error / np.array([div_fac, div_fac, np.pi])
 
+        # Nearest obstacle distance according to lidar
+        nearest_obstacle_distance = np.min(sensors[:,1]) * self.sensor_max_range
+
         reward, info = self.compute_reward(normalized_tracking_error,
                                            angle_to_target,
                                            arrived,
                                            action,
                                            self.action_history,
                                            distance_to_obs=nearest_obstacle_distance,
-                                           angle_to_obs=nearest_obstacle_angle,
                                            obs_radius=nearest_obstacle_radius)
 
         self.debug_vars['reward'] = reward
-
         self.last_velocity = self.velocity
         self.last_action = action_in.copy()
 
@@ -274,9 +275,8 @@ class UsvAsmcCaEnv(gymnasium.Env):
             np.hypot(tracking_error[0], tracking_error[1]) / 45,
             angle_to_target / np.pi,
             np.average(self.action_history, axis=0) / np.maximum(self.max_action0, self.max_action1),
-            nearest_obstacle_distance / div_fac,
-            nearest_obstacle_angle / np.pi,
-            nearest_obstacle_radius / self.max_r
+            nearest_obstacle_distance,
+            sensors[:,1]
         ))
 
         #if np.max(np.abs(self.state)) > 1.0:
@@ -509,7 +509,6 @@ class UsvAsmcCaEnv(gymnasium.Env):
                        arrived, action,
                        action_history,
                        distance_to_obs,
-                       angle_to_obs,
                        obs_radius):
         info = {}
         te = tracking_error.copy()
@@ -522,8 +521,8 @@ class UsvAsmcCaEnv(gymnasium.Env):
         #reward -= np.abs(action[1]) * 0.2
         reward -= action[1] ** 2 * 4 + (np.abs(action[0]) - 1) ** 2
 
-        reward_zone_r = 2.25 + obs_radius
-        punishment_zone_r = 1.0 + obs_radius
+        reward_zone_r = 3.25
+        punishment_zone_r = 1.5
         phi_rz = 0.1
         phi_pz = 0.2
         obs_oa_r = 0
@@ -536,17 +535,19 @@ class UsvAsmcCaEnv(gymnasium.Env):
                               (distance_to_obs - punishment_zone_r) /
                               (reward_zone_r - punishment_zone_r))).item()
             obs_oa_r = np.log(obs_oa_r)
-        elif obs_radius < distance_to_obs < punishment_zone_r:
+        elif 0 < distance_to_obs < punishment_zone_r:
             # Punishment zone
             #print('punish')
             obs_oa_r = np.maximum(phi_pz,
                             1.0 / np.tanh((distance_to_obs - obs_radius) / (punishment_zone_r - obs_radius))).item()
             obs_oa_r = -np.log(obs_oa_r)
             #print(f"Distance: {distance_to_obs} Obs: {obs_oa_r}")
-        elif distance_to_obs < obs_radius:
+        elif distance_to_obs < 0:
             # Obstacle
             #print('obstacle')
             obs_oa_r = -18
+
+        #print(obs_oa_r)
 
         #self.plot_vars['obs_oa_r'] = obs_oa_r / 10
         reward += obs_oa_r * 0.5
