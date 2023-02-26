@@ -187,7 +187,7 @@ class UsvCaRenderer():
 
         plot_start_pos = (200, 0)
         plot_size = (200, 100)
-        if show_plot_vars:
+        if show_plot_vars and False:
             for key, data in plot_vars.items():
                 self.plot_var_data[key].append(data)
                 render_plot(self.plot_var_data[key],

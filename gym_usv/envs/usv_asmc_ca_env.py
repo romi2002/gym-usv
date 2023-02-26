@@ -20,7 +20,7 @@ from scipy.stats import linregress
 class UsvAsmcCaEnv(gymnasium.Env):
     metadata = {'render.modes': ['human', 'rgb_array'], 'render_fps': 60}
 
-    def __init__(self, render_mode="rgb_array"):
+    def __init__(self, render_mode="rgb_array", perturb_range=(0,0), perturb_amount=(0,0)):
         self.render_mode = render_mode
         # Integral step (or derivative) for 100 Hz
         self.integral_step = 0.1
@@ -66,10 +66,14 @@ class UsvAsmcCaEnv(gymnasium.Env):
         # Variable for the visualizer
         self.viewer = None
 
+        self.perturb_range = perturb_range
+        self.perturb_amount = perturb_amount
+        self.perturb_step = 0
+
         # Min and max actions
         # velocity 
-        self.min_action0 = 1.0
-        self.max_action0 = 1.2
+        self.min_action0 = 0.5
+        self.max_action0 = 0.8
         # angle (change to -pi and pi if necessary)
         self.min_action1 = -np.pi / 3
         self.max_action1 = np.pi / 3
@@ -85,7 +89,7 @@ class UsvAsmcCaEnv(gymnasium.Env):
         self.debug_vars = {}
         self.plot_vars = {}
 
-        self.action_history_len = 8
+        self.action_history_len = 1
         self.action_history = None
 
         # Distance to target, angle between real and target, long velocity, normal vel, ang accel, sensor data
@@ -118,6 +122,8 @@ class UsvAsmcCaEnv(gymnasium.Env):
         self.last_action = np.zeros(2)
         self.start_position = np.zeros(3)
         self.action_vel_accel = np.zeros((2, 2)) # a', a''
+
+        self.perturb_step = 0
 
         self.asmc = UsvAsmc()
         self.reset()
@@ -176,6 +182,7 @@ class UsvAsmcCaEnv(gymnasium.Env):
 
         self.debug_vars['action0'] = action[0]
         self.debug_vars['action1'] = action[1]
+        info = {}
 
         if self.use_kinematic_model:
             # Update rotational vel
@@ -198,8 +205,18 @@ class UsvAsmcCaEnv(gymnasium.Env):
         else:
             eta = self.position
             upsilon = self.velocity
-            for _ in range(5):
-                eta, upsilon = self.asmc.compute(action, np.array(eta), np.array(upsilon))
+
+            self.perturb_step += 1
+
+            if self.perturb_range[0] < self.perturb_step < self.perturb_range[1]:
+                perturb = self.perturb_amount
+            else:
+                perturb = [0, 0]
+
+            info['perturb'] = perturb
+
+            eta, upsilon, asmc_info = self.asmc.compute(action, np.array(eta), np.array(upsilon), perturb)
+            info['asmc_info'] = asmc_info
 
         u, v, r = upsilon
         self.velocity = upsilon
@@ -257,7 +274,7 @@ class UsvAsmcCaEnv(gymnasium.Env):
         # Nearest obstacle distance according to lidar
         nearest_obstacle_distance = np.min(sensors[:,1]) * self.sensor_max_range
 
-        reward, info = self.compute_reward(normalized_tracking_error,
+        reward, _ = self.compute_reward(normalized_tracking_error,
                                            angle_to_target,
                                            arrived,
                                            action,
@@ -299,6 +316,12 @@ class UsvAsmcCaEnv(gymnasium.Env):
         # Reshape state
         self.state = self.state.reshape(self.observation_space.shape[0]).astype(np.float32)
         info['completed'] = arrived
+        info['action'] = action
+        info['position'] = self.position
+        info['velocity'] = self.velocity
+        info['target'] = self.target_point
+        info['obstacles'] = np.hstack((self.obs_x, self.obs_y))
+        info['obstacle_radius'] = self.obs_r
 
         if np.max(np.abs(self.position)) > 100:
             done = True
@@ -337,6 +360,7 @@ class UsvAsmcCaEnv(gymnasium.Env):
         self.target_point = np.hstack([self.target_point, np.zeros(1)]) # Target angle is always 0
 
         # TODO maybe change distribution
+        # Generate obstacles
         min_radius = 0.75
         max_radius = 0.77
         # row_n = int(np.random.uniform(4, 10))
@@ -366,6 +390,11 @@ class UsvAsmcCaEnv(gymnasium.Env):
         self.obs_y = np.array(np.average([self.position[1], self.target_point[1]]))
         self.obs_r = np.array([3])
         self.num_obs = 1
+        self.num_obs = int(np.random.uniform(0, 15))
+        center_x, center_y = np.average([self.position[0], self.target_point[0]]), np.average([self.position[1], self.target_point[1]])
+        self.obs_r = np.random.uniform(1, 2, self.num_obs)
+        self.obs_x = np.random.normal(loc=center_x, size=self.num_obs, scale=8)
+        self.obs_y = np.random.normal(loc=center_y, size=self.num_obs, scale=8)
         #self.obs_r = np.random.uniform(low=min_radius, high=max_radius, size=self.num_obs)
         #self.num_obs = row_n * col_n
         #obs_pos = np.array(m).T.reshape(-1, 2)
@@ -378,7 +407,7 @@ class UsvAsmcCaEnv(gymnasium.Env):
         self.total_reward = 0
 
         distance = np.hypot(self.obs_x - self.position[0],
-                            self.obs_y - self.position[1]) - self.obs_r - self.boat_radius - (self.safety_radius + 0.35)
+                            self.obs_y - self.position[1]) - self.obs_r - self.boat_radius - (self.safety_radius + 1)
         distance = distance.reshape(-1)
 
         self.asmc = UsvAsmc()
@@ -392,7 +421,7 @@ class UsvAsmcCaEnv(gymnasium.Env):
 
         distance = np.hypot(self.obs_x - self.target_point[0],
                             self.obs_y - self.target_point[1]) - self.obs_r - self.boat_radius - (
-                               self.safety_radius + 0.35)
+                               self.safety_radius + 2)
         distance = distance.reshape(-1)
         elems_to_delete = np.flatnonzero(distance < 0)
         self.obs_x = np.delete(self.obs_x, elems_to_delete).reshape(-1, 1)
@@ -519,10 +548,11 @@ class UsvAsmcCaEnv(gymnasium.Env):
         r_delta = np.sum(np.abs(np.array(action) - np.average(action_history, axis=0)))
         reward -= r_delta * 5
         #reward -= np.abs(action[1]) * 0.2
-        reward -= action[1] ** 2 * 4 + (np.abs(action[0]) - 1) ** 2
+        reward_a = action[1] ** 2 + (np.abs(action[0]) - 1) ** 2
+        reward -= reward_a
 
-        reward_zone_r = 3.25
-        punishment_zone_r = 1.5
+        reward_zone_r = 3.45
+        punishment_zone_r = 1.75
         phi_rz = 0.1
         phi_pz = 0.2
         obs_oa_r = 0

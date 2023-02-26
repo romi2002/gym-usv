@@ -48,7 +48,7 @@ class UsvAsmc():
 
     # position = eta
     # velocity = upsilon
-    def compute(self, action, position, velocity):
+    def compute(self, action, position, velocity, thuster_perturbation):
         x_dot_last, y_dot_last, psi_dot_last, u_dot_last, v_dot_last, r_dot_last, e_u_last, ka_dot_u_last, ka_dot_psi_last = self.last
         psi_d_last, o_dot_dot_last, o_dot_last, o_last, o, o_dot, o_dot_dot = self.so_filter
 
@@ -62,8 +62,11 @@ class UsvAsmc():
         velocity = np.array([u, v, r])
         eta_dot_last = np.array([x_dot_last, y_dot_last, psi_dot_last])
         upsilon_dot_last = np.array([u_dot_last, v_dot_last, r_dot_last])
+        infos = []
+        #print(thuster_perturbation)
 
         for _ in range(10):
+            info = {}
             beta = np.math.asin(velocity[1] / (0.001 + np.hypot(velocity[0], velocity[1])))
             chi = psi + beta
             # chi = np.where(np.greater(np.abs(chi), np.pi), (np.sign(chi)) * (np.abs(chi) - 2 * np.pi), chi)
@@ -153,6 +156,13 @@ class UsvAsmc():
             tport = np.clip(tport, -30, 30)
             tstbd = np.clip(tstbd, -30, 30)
 
+            #if thuster_perturbation is not None:
+            #    tport += thuster_perturbation[0]
+            #    tstbd += thuster_perturbation[1]
+
+            info['tport'] = tport
+            info['tstbd'] = tstbd
+
             # Compute USV model matrices
             M = np.array([[self.m - self.X_u_dot, 0, 0],
                           [0, self.m - self.Y_v_dot, 0 - self.Y_r_dot],
@@ -207,4 +217,5 @@ class UsvAsmc():
 
             self.so_filter = np.array([psi_d_last, o_dot_dot_last, o_dot_last, o_last, o, o_dot, o_dot_dot])
             self.aux_vars = np.array([e_u_int, ka_u, ka_psi])
-            return position, velocity
+            infos.append(info)
+        return position, velocity, infos
