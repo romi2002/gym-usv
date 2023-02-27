@@ -25,20 +25,20 @@ class UsvAsmc():
 
         # ASMC gains
         self.k_u = 0.1
-        self.k_psi = 0.2
+        self.k_psi = 0.175
         self.kmin_u = 0.05
         self.kmin_psi = 0.2
         self.k2_u = 0.02
         self.k2_psi = 0.1
         self.mu_u = 0.05
-        self.mu_psi = 0.1
+        self.mu_psi = 0.07
         self.lambda_u = 0.001
-        self.lambda_psi = 1
+        self.lambda_psi = 0.7
 
         # Second order filter gains (for r_d)
-        self.f1 = 2.0
-        self.f2 = 2.0
-        self.f3 = 2.0
+        self.f1 = 1.0
+        self.f2 = 1.5
+        self.f3 = 1.75
 
         self.so_filter = np.zeros(7)
 
