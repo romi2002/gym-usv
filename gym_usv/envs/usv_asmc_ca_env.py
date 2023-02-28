@@ -49,11 +49,11 @@ class UsvAsmcCaEnv(gymnasium.Env):
         self.lidar_resolution = self.sensor_span / self.sensor_num  # angle resolution in radians
         self.sector_num = 25  # number of sectors
         self.sector_size = np.floor(self.sensor_num / self.sector_num).astype(int)  # number of points per sector
-        self.sensor_max_range = 100.0  # m
+        self.sensor_max_range = 10.0  # m
         self.last_reward = 0
 
         # Boat radius
-        self.boat_radius = 0.5
+        self.boat_radius = 0.1
         self.safety_radius = 0.3
         self.safety_distance = 0.1
 
@@ -72,11 +72,11 @@ class UsvAsmcCaEnv(gymnasium.Env):
 
         # Min and max actions
         # velocity 
-        self.min_action0 = 0.25
+        self.min_action0 = 0.6
         self.max_action0 = 0.8
         # angle (change to -pi and pi if necessary)
-        self.min_action1 = -np.pi / 4
-        self.max_action1 = np.pi / 4
+        self.min_action1 = -np.pi / 2
+        self.max_action1 = np.pi / 2
 
         # Min and max values of the state
         self.min_u = -2.5 / 2
@@ -89,11 +89,11 @@ class UsvAsmcCaEnv(gymnasium.Env):
         self.debug_vars = {}
         self.plot_vars = {}
 
-        self.action_history_len = 1
+        self.action_history_len = 8
         self.action_history = None
 
         # Distance to target, angle between real and target, long velocity, normal vel, ang accel, sensor data
-        self.state_length = 7 + self.sensor_num
+        self.state_length = 10 + self.sensor_num
 
         # Min and max state vectors
         self.low_state = np.full(self.state_length, -1.0)
@@ -229,7 +229,7 @@ class UsvAsmcCaEnv(gymnasium.Env):
         truncated = False
 
         distance = np.hypot(self.obs_x - eta[0],
-                            self.obs_y - eta[1]) - self.obs_r - self.boat_radius - self.safety_radius
+                            self.obs_y - eta[1]) - self.obs_r
         distance_to_obstacle = distance + self.obs_r
         distance = distance.reshape(-1)
         nearest_obstacle_distance = 0
@@ -263,7 +263,7 @@ class UsvAsmcCaEnv(gymnasium.Env):
         distance_to_target = np.hypot(self.position[0] - self.target_point[0], self.position[1] - self.target_point[1])
         angle_to_target = self._compute_angle_to_point(self.position, self.target_point, psi)
         # Compute reward
-        arrived = distance_to_target < 1.5
+        arrived = distance_to_target < 1
         tracking_error = np.array([[np.cos(psi), np.sin(psi), 0],
                                   [-np.sin(psi), np.cos(psi), 0],
                                   [0, 0, 1]]) @ (self.target_point - self.position)
@@ -289,10 +289,10 @@ class UsvAsmcCaEnv(gymnasium.Env):
         self.state = np.hstack((
             u / self.max_u, r / self.max_r,
             normalized_tracking_error,
-            #np.hypot(tracking_error[0], tracking_error[1]) / 45,
-            #angle_to_target / np.pi,
+            np.hypot(tracking_error[0], tracking_error[1]) / 45,
+            angle_to_target / np.pi,
             np.average(self.action_history, axis=0) / np.maximum(self.max_action0, self.max_action1),
-            #nearest_obstacle_distance / self.sensor_max_range,
+            nearest_obstacle_distance / self.sensor_max_range,
             sensors[:,1]
         ))
 
@@ -393,11 +393,11 @@ class UsvAsmcCaEnv(gymnasium.Env):
         self.obs_y = np.array(np.average([self.position[1], self.target_point[1]]))
         self.obs_r = np.array([3])
         self.num_obs = 1
-        self.num_obs = int(np.random.uniform(0, 15))
+        self.num_obs = int(np.random.uniform(10, 35))
         center_x, center_y = np.average([self.position[0], self.target_point[0]]), np.average([self.position[1], self.target_point[1]])
         self.obs_r = np.random.uniform(1, 2, self.num_obs)
-        self.obs_x = np.random.normal(loc=center_x, size=self.num_obs, scale=8)
-        self.obs_y = np.random.normal(loc=center_y, size=self.num_obs, scale=8)
+        self.obs_x = np.random.normal(loc=center_x, size=self.num_obs, scale=10)
+        self.obs_y = np.random.normal(loc=center_y, size=self.num_obs, scale=10)
         #self.obs_r = np.random.uniform(low=min_radius, high=max_radius, size=self.num_obs)
         #self.num_obs = row_n * col_n
         #obs_pos = np.array(m).T.reshape(-1, 2)
@@ -423,7 +423,7 @@ class UsvAsmcCaEnv(gymnasium.Env):
         self.total_reward = 0
 
         distance = np.hypot(self.obs_x - self.position[0],
-                            self.obs_y - self.position[1]) - self.obs_r - self.boat_radius - (self.safety_radius + 1)
+                            self.obs_y - self.position[1]) - self.obs_r - self.boat_radius - (self.safety_radius + 0.35)
         distance = distance.reshape(-1)
 
         self.asmc = UsvAsmc()
@@ -437,7 +437,7 @@ class UsvAsmcCaEnv(gymnasium.Env):
 
         distance = np.hypot(self.obs_x - self.target_point[0],
                             self.obs_y - self.target_point[1]) - self.obs_r - self.boat_radius - (
-                               self.safety_radius + 2)
+                               self.safety_radius + 0.35)
         distance = distance.reshape(-1)
         elems_to_delete = np.flatnonzero(distance < 0)
         self.obs_x = np.delete(self.obs_x, elems_to_delete).reshape(-1, 1)
@@ -558,53 +558,51 @@ class UsvAsmcCaEnv(gymnasium.Env):
         info = {}
         te = tracking_error.copy()
         te[2] = 0
-        r_tracking_error = -np.hypot(te[0], te[1]) * 35 - np.abs(angle_to_target / np.pi) * 2
+        r_tracking_error = -np.hypot(te[0], te[1]) * 15 - np.abs(angle_to_target / np.pi) * 1.5
         #print(r_tracking_error)
         reward = r_tracking_error
-        r_delta = np.sum(np.abs(np.array(action) - np.average(action_history, axis=0))) * 0.1
-        reward -= r_delta
+        r_delta = np.sum(np.abs(np.array(action) - np.average(action_history, axis=0)))
+        reward -= r_delta * 2.0
         #reward -= np.abs(action[1]) * 0.2
-        reward_a = action[1] ** 2 * 0.5 + (np.abs(action[0]) - 1) ** 2 * 0.2
-        reward -= reward_a
-        #print(f"reward_a: {reward_a} reward_delta: {r_delta}")
-
-        reward_zone_r = 2.25
-        punishment_zone_r = 0.75
-        phi_rz = 0.1
-        phi_pz = 0.2
+        reward -= action[1] ** 2 * 3 + (np.abs(action[0]) - 1) ** 2 #ra
+        distance_to_obs -= self.safety_radius
+        reward_zone_r = 1.0
+        punishment_zone_r = 0.4
+        phi_rz = 7.0
+        phi_pz = 20.0
         obs_oa_r = 0
         #print(distance_to_obs)
         if punishment_zone_r < distance_to_obs < reward_zone_r:
             # Rewards zone
             #print('reward')
-            obs_oa_r = np.maximum(phi_rz,
+            obs_oa_r = np.minimum(phi_rz,
                           1.0 / np.tanh(
                               (distance_to_obs - punishment_zone_r) /
                               (reward_zone_r - punishment_zone_r))).item()
-            obs_oa_r = np.log(obs_oa_r)
+            #obs_oa_r = np.log(obs_oa_r) * 0.1
+            #print(f"Reward: {obs_oa_r}")
             #obs_oa_r = obs_oa_r
         elif 0 < distance_to_obs < punishment_zone_r:
             # Punishment zone
             #print('punish')
-            obs_oa_r = np.maximum(phi_pz,
-                            1.0 / np.tanh((distance_to_obs - 0) / (punishment_zone_r - 0))).item()
-            #obs_oa_r = -np.log(obs_oa_r)
-            obs_oa_r = -obs_oa_r
+            obs_oa_r = -np.minimum(phi_pz,
+                            1.0 / np.tanh(distance_to_obs / punishment_zone_r)).item()
+            #print(f"Punish: {obs_oa_r}")
             #print(f"Distance: {distance_to_obs} Obs: {obs_oa_r}")
         elif distance_to_obs < 0:
             # Obstacle
             #print('obstacle')
-            obs_oa_r = -40
+            obs_oa_r = -35000
 
-        #print(obs_oa_r)
+        #print(f"dist: {distance_to_obs} obs_oa_r: {obs_oa_r}")
 
         #self.plot_vars['obs_oa_r'] = obs_oa_r / 10
-        reward += obs_oa_r * 0.45
+        reward += obs_oa_r / 10
         reward_action = action[0] ** 2 / 5 + np.abs(action[1]) ** 2 * 1.5
         #reward -= reward_action
 
         if arrived:
-            reward += 150
+            reward += 2000
 
         #print(obs_oa_r)
 
