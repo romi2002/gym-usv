@@ -156,9 +156,9 @@ class UsvAsmc():
             tport = np.clip(tport, -30, 30)
             tstbd = np.clip(tstbd, -30, 30)
 
-            #if thuster_perturbation is not None:
-            #    tport += thuster_perturbation[0]
-            #    tstbd += thuster_perturbation[1]
+            if thuster_perturbation is not None:
+                tport += thuster_perturbation[0]
+                tstbd += thuster_perturbation[1]
 
             info['tport'] = tport
             info['tstbd'] = tstbd
