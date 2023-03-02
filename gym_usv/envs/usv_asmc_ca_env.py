@@ -11,12 +11,9 @@ import gymnasium
 from gymnasium import spaces
 import numpy as np
 from numba import njit
-from scipy.spatial import distance
 from collections import deque
 from gym_usv.control import UsvAsmc, UsvPID
 from .usv_ca_renderer import UsvCaRenderer
-from scipy.stats import linregress
-import math
 
 class UsvAsmcCaEnv(gymnasium.Env):
     metadata = {'render.modes': ['human', 'rgb_array'], 'render_fps': 60}
@@ -40,7 +37,6 @@ class UsvAsmcCaEnv(gymnasium.Env):
 
         # current state variable
         self.velocity = np.zeros(3)
-        self.last_velocity = np.zeros(3)
         self.position = np.zeros(3)
 
         self.sensor_num = 32
@@ -51,7 +47,6 @@ class UsvAsmcCaEnv(gymnasium.Env):
         self.sector_num = 25  # number of sectors
         self.sector_size = np.floor(self.sensor_num / self.sector_num).astype(int)  # number of points per sector
         self.sensor_max_range = 100.0  # m
-        self.last_reward = 0
 
         # Boat radius
         self.boat_radius = 0.1
@@ -66,8 +61,6 @@ class UsvAsmcCaEnv(gymnasium.Env):
 
         # Variable for the visualizer
         self.viewer = None
-
-        self.ra = 0
 
         self.perturb_range = perturb_range
         self.perturb_amount = perturb_amount
@@ -117,14 +110,7 @@ class UsvAsmcCaEnv(gymnasium.Env):
         self.renderplots = True
 
         self.target_point = np.zeros(2)
-
-        self.pos_history_pos = np.zeros(3)
-        self.pos_history_next = np.zeros(3)
-        self.pos_history_last = np.zeros(3)
-        self.pos_history_last_last = np.zeros(3)
-        self.last_action = np.zeros(2)
         self.start_position = np.zeros(3)
-        self.action_vel_accel = np.zeros((2, 2)) # a', a''
 
         self.perturb_step = 0
 
@@ -137,30 +123,16 @@ class UsvAsmcCaEnv(gymnasium.Env):
         return np.arctan2(np.sin(angle), np.cos(angle))
 
     @staticmethod
+    def _map(x, in_min, in_max, out_min, out_max):
+        return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min
+
+    @staticmethod
     def _normalize_val(x, in_min, in_max):
         return UsvAsmcCaEnv._map(x, in_min, in_max, -1, 1)
 
     @staticmethod
     def _denormalize_val(x, out_min, out_max):
         return UsvAsmcCaEnv._map(x, -1, 1, out_min, out_max)
-
-    @staticmethod
-    def _map(x, in_min, in_max, out_min, out_max):
-        return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min
-
-    def _normalize_state(self, state):
-
-        u = self._normalize_val(u, self.min_u, self.max_u)
-        v = self._normalize_val(v, self.min_v, self.max_v)
-        r = self._normalize_val(r, self.min_r, self.max_r)
-        ylp = self._normalize_val(ylp, -np.pi, np.pi)
-        lookahead_error = self._normalize_val(lookahead_error, self.min_lookahead_error, self.max_lookahead_error)
-        courseerror = self._normalize_val(lookahead_error, self.min_courseerror, self.max_courseerror)
-
-        state = np.hstack(
-            (u, v, r, ylp, lookahead_error, courseerror, state[6:]))
-
-        return state
 
     def step(self, action_in):
         '''
@@ -176,18 +148,13 @@ class UsvAsmcCaEnv(gymnasium.Env):
         self.position[2] = self._wrap_angle(self.position[2])
         x, y, psi = self.position
 
-        self.debug_vars['x'], self.debug_vars['y'] = x, y
-
         action = [
             self._denormalize_val(action_in[0], self.min_action0, self.max_action0),
             self._denormalize_val(action_in[1], self.min_action1, self.max_action1)
         ]
-        self.debug_vars['action0_in'] = action_in[0]
-        self.debug_vars['action1_in'] = action_in[1]
 
-        self.debug_vars['action0'] = action[0]
-        self.debug_vars['action1'] = action[1]
-        info = {}
+        self.perturb_step += 1
+        do_perturb = self.perturb_range[0] < self.perturb_step < self.perturb_range[1]
 
         control_type = "ASMC"
         if control_type == "kinematic":
@@ -205,27 +172,13 @@ class UsvAsmcCaEnv(gymnasium.Env):
             y += -u * self.integral_step * -np.sin(psi)
 
             upsilon = u, v, r
-            self.debug_vars['u'] = u
-            self.debug_vars['r'] = r
             eta = x, y, psi
         elif control_type == "ASMC":
             eta = self.position
             upsilon = self.velocity
 
-            self.perturb_step += 1
-            do_perturb = self.perturb_range[0] < self.perturb_step < self.perturb_range[1]
-
-            T = 0.1
-            ra = T * action[1] + (1 - T) * self.ra
-            self.ra = np.clip(self.min_r, self.max_r, self.ra)
-            self.ra = action[1]
-            info['ra_original'] = action[1]
-            info['ra_filtered'] = self.ra
-
-            action[1] = self.ra
-
             eta, upsilon, asmc_info = self.asmc.compute(action, np.array(eta), np.array(upsilon), do_perturb=do_perturb)
-            info['asmc_info'] = asmc_info
+
         elif control_type == "PID":
             eta = self.position
             upsilon = self.velocity
@@ -234,7 +187,6 @@ class UsvAsmcCaEnv(gymnasium.Env):
             do_perturb = self.perturb_range[0] < self.perturb_step < self.perturb_range[1]
 
             eta, upsilon, asmc_info = self.pid.compute(action, np.array(eta), np.array(upsilon), do_perturb=do_perturb)
-            info['asmc_info'] = asmc_info
 
         u, v, r = upsilon
         self.velocity = upsilon
@@ -299,10 +251,6 @@ class UsvAsmcCaEnv(gymnasium.Env):
                                            self.action_history,
                                            distance_to_obs=nearest_obstacle_distance)
 
-        self.debug_vars['reward'] = reward
-        self.last_velocity = self.velocity
-        self.last_action = action_in.copy()
-
         self.state = np.hstack((
             u / self.max_u, r / self.max_r,
             normalized_tracking_error,
@@ -317,8 +265,6 @@ class UsvAsmcCaEnv(gymnasium.Env):
             print(self.state)
 
         self.action_history.append(action)
-
-        self.debug_vars['p'] = ", ".join([str(np.round(p, 3)) for p in self.position])
 
         if arrived:
             done = True
@@ -363,15 +309,9 @@ class UsvAsmcCaEnv(gymnasium.Env):
         theta = np.random.uniform(low=-np.pi / 4, high=np.pi / 4)
         self.position = [x, y, theta]
         self.start_position = self.position
-        self.last_pos = np.array([x, y, theta])
         self.action_vel_accel = np.zeros((2, 2))  # a', a''
 
         self.action_history = deque([np.zeros(2)] * self.action_history_len, maxlen=self.action_history_len)
-
-        # number of obstacles 
-        self.num_obs = np.clip(int(np.random.normal(loc=15, scale=6)), 0, 30)
-        if not self.place_obstacles:
-            self.num_obs = 0
 
         self.target_point = np.random.uniform(
             low=(self.min_x, self.max_y - 5),
@@ -379,47 +319,14 @@ class UsvAsmcCaEnv(gymnasium.Env):
             size=2)
         self.target_point = np.hstack([self.target_point, np.zeros(1)]) # Target angle is always 0
 
-        # TODO maybe change distribution
-        # Generate obstacles
-        min_radius = 0.75
-        max_radius = 0.77
-        # row_n = int(np.random.uniform(4, 10))
-        # col_n = int(np.random.uniform(4, 5))
-        # if options:
-        #     row_n = options['row_n']
-        #     col_n = options['col_n']
-        #obs_x = np.linspace(self.min_x, self.max_x, row_n)
-        #obs_y = np.linspace(self.min_y + 6, self.max_y - 6, col_n)
-        #m = np.meshgrid(obs_x, obs_y)
-        # obstacles = np.random.uniform(
-        #     low=np.tile((self.min_x, self.min_y, min_radius), (self.num_obs, 1)).T,
-        #     high=np.tile((self.max_x, self.max_y, max_radius), (self.num_obs, 1)).T,
-        #     size=(3, self.num_obs)).T
-        #
-        #obs_pos = np.random.normal(loc=(np.array(self.target_point[:2]) + np.array(self.start_position[:2])) / 2, scale=5.0, size=(self.num_obs, 2))
-        #
-        #self.num_obs = len(obstacles)
-        #self.obs_x = obstacles[:, 0]
-        #self.obs_y = obstacles[:, 1]
-        # self.obs_r = obstacles[:, 2]
-        #
-        #self.obs_x, self.obs_y = obs_pos[:,0], obs_pos[:,1]
-        #self.obs_x = np.random.uniform(low=self.min_x, high=self.max_x, size=self.num_obs)
-        #self.obs_y = np.random.uniform(low=self.min_y + 6, high=self.max_y - 6, size=self.num_obs)
-        self.obs_x = np.array(np.average([self.position[0], self.target_point[0]]))
-        self.obs_y = np.array(np.average([self.position[1], self.target_point[1]]))
-        self.obs_r = np.array([3])
-        self.num_obs = 1
         self.num_obs = int(np.random.uniform(10, 25))
+        if not self.place_obstacles:
+            self.num_obs = 0
+
         center_x, center_y = np.average([self.position[0], self.target_point[0]]), np.average([self.position[1], self.target_point[1]])
         self.obs_r = np.random.uniform(1, 2, self.num_obs)
         self.obs_x = np.random.normal(loc=center_x, size=self.num_obs, scale=10)
         self.obs_y = np.random.normal(loc=center_y, size=self.num_obs, scale=10)
-        #self.obs_r = np.random.uniform(low=min_radius, high=max_radius, size=self.num_obs)
-        #self.num_obs = row_n * col_n
-        #obs_pos = np.array(m).T.reshape(-1, 2)
-        #self.obs_x, self.obs_y = obs_pos[:,0], obs_pos[:,1]
-        #self.obs_r = np.full(self.num_obs, 0.5)
 
         if options:
             self.renderplots = options['renderplots']
@@ -547,24 +454,6 @@ class UsvAsmcCaEnv(gymnasium.Env):
     def close(self):
         if self.renderer is not None:
             self.renderer.close()
-
-    def _oa_reward(self, sensors):
-        gamma_theta = 4.0
-        gamma_x = 0.0005
-        epsilon = 1
-        sensors *= self.sensor_max_range
-
-        gammainv = np.power(1 + np.abs(sensors[:, 0] * gamma_theta), -1)
-        distelem = np.power(gamma_x * np.power(np.maximum(sensors[:, 1], epsilon), 2), -1)
-
-        numerator = np.sum(distelem)
-        denominator = np.sum(gammainv)
-        return -(numerator / denominator) / 5e4
-
-        # numerator = np.sum(np.power()
-        denominator = np.sum(1 + np.abs(sensors[:, 0] * gamma_theta))
-        return -(numerator / denominator)
-
     def compute_reward(self,
                        tracking_error,
                        angle_to_target,
@@ -625,39 +514,6 @@ class UsvAsmcCaEnv(gymnasium.Env):
         #self.plot_vars['tracking_error'] = r_tracking_error / 10
         #self.plot_vars['reward'] = reward / 10
         return reward, info
-
-    def test_reward_function(self, angle_to_target, last_angle_to_target, action_history):
-        delta_ang = angle_to_target - last_angle_to_target
-        reward = 1 - (0.2 * angle_to_target ** 2 + 0.1 * delta_ang ** 2 + 0.001 * action_history[-1][1] ** 2)
-        reward = 1 - angle_to_target
-        return reward
-
-    def body_to_path(self, x2, y2, alpha):
-        '''
-        @name: body_to_path
-        @brief: Coordinate transformation between body and path reference frames.
-        @param: x2: target x coordinate in body reference frame
-                y2: target y coordinate in body reference frame
-        @return: path_x2: target x coordinate in path reference frame
-                 path_y2: target y coordinate in path reference frame
-        '''
-        p = np.array([x2, y2])
-        J = self.rotation_matrix(alpha)
-        n = J.dot(p)
-        path_x2 = n[0]
-        path_y2 = n[1]
-        return (path_x2, path_y2)
-
-    def rotation_matrix(self, angle):
-        '''
-        @name: rotation_matrix
-        @brief: Transformation matrix template.
-        @param: angle: angle of rotation
-        @return: J: transformation matrix
-        '''
-        J = np.array([[np.math.cos(angle), -np.math.sin(angle)],
-                      [np.math.sin(angle), np.math.cos(angle)]])
-        return (J)
 
     @staticmethod
     def compute_obstacle_positions(sensor_angles, obstacle_pos, boat_pos):
