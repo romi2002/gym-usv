@@ -13,9 +13,10 @@ import numpy as np
 from numba import njit
 from scipy.spatial import distance
 from collections import deque
-from gym_usv.control import UsvAsmc
+from gym_usv.control import UsvAsmc, UsvPID
 from .usv_ca_renderer import UsvCaRenderer
 from scipy.stats import linregress
+import math
 
 class UsvAsmcCaEnv(gymnasium.Env):
     metadata = {'render.modes': ['human', 'rgb_array'], 'render_fps': 60}
@@ -66,6 +67,8 @@ class UsvAsmcCaEnv(gymnasium.Env):
         # Variable for the visualizer
         self.viewer = None
 
+        self.ra = 0
+
         self.perturb_range = perturb_range
         self.perturb_amount = perturb_amount
         self.perturb_step = 0
@@ -75,8 +78,8 @@ class UsvAsmcCaEnv(gymnasium.Env):
         self.min_action0 = 0.65
         self.max_action0 = 0.8
         # angle (change to -pi and pi if necessary)
-        self.min_action1 = -np.pi / 2.5
-        self.max_action1 = np.pi / 2.5
+        self.min_action1 = -np.pi / 2.5 / 10
+        self.max_action1 = np.pi / 2.5 / 10
 
         # Min and max values of the state
         self.min_u = -2.5 / 2
@@ -126,6 +129,7 @@ class UsvAsmcCaEnv(gymnasium.Env):
         self.perturb_step = 0
 
         self.asmc = UsvAsmc()
+        self.pid = UsvPID()
         self.reset()
 
     @staticmethod
@@ -169,6 +173,7 @@ class UsvAsmcCaEnv(gymnasium.Env):
         '''
         # Change from vectors to scalars
         u, v, r = self.velocity
+        self.position[2] = self._wrap_angle(self.position[2])
         x, y, psi = self.position
 
         self.debug_vars['x'], self.debug_vars['y'] = x, y
@@ -184,7 +189,8 @@ class UsvAsmcCaEnv(gymnasium.Env):
         self.debug_vars['action1'] = action[1]
         info = {}
 
-        if self.use_kinematic_model:
+        control_type = "ASMC"
+        if control_type == "kinematic":
             # Update rotational vel
             T = 1 / 2
             dvr = T * (action[1] - r)
@@ -202,20 +208,32 @@ class UsvAsmcCaEnv(gymnasium.Env):
             self.debug_vars['u'] = u
             self.debug_vars['r'] = r
             eta = x, y, psi
-        else:
+        elif control_type == "ASMC":
             eta = self.position
             upsilon = self.velocity
 
             self.perturb_step += 1
+            do_perturb = self.perturb_range[0] < self.perturb_step < self.perturb_range[1]
 
-            if self.perturb_range[0] < self.perturb_step < self.perturb_range[1]:
-                perturb = self.perturb_amount
-            else:
-                perturb = [0, 0]
+            T = 0.1
+            ra = T * action[1] + (1 - T) * self.ra
+            self.ra = np.clip(self.min_r, self.max_r, self.ra)
+            self.ra = action[1]
+            info['ra_original'] = action[1]
+            info['ra_filtered'] = self.ra
 
-            info['perturb'] = perturb
+            action[1] = self.ra
 
-            eta, upsilon, asmc_info = self.asmc.compute(action, np.array(eta), np.array(upsilon), perturb)
+            eta, upsilon, asmc_info = self.asmc.compute(action, np.array(eta), np.array(upsilon), do_perturb=do_perturb)
+            info['asmc_info'] = asmc_info
+        elif control_type == "PID":
+            eta = self.position
+            upsilon = self.velocity
+
+            self.perturb_step += 1
+            do_perturb = self.perturb_range[0] < self.perturb_step < self.perturb_range[1]
+
+            eta, upsilon, asmc_info = self.pid.compute(action, np.array(eta), np.array(upsilon), do_perturb=do_perturb)
             info['asmc_info'] = asmc_info
 
         u, v, r = upsilon
