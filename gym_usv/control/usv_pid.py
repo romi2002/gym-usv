@@ -1,7 +1,7 @@
 import numpy as np
 
 
-class UsvAsmc():
+class UsvPID():
     def __init__(self):
         # USV model coefficients
         self.X_u_dot = -2.25
@@ -23,17 +23,16 @@ class UsvAsmc():
         self.B = 0.41
         self.c = 0.78
 
-        # ASMC gains
-        self.k_u = 0.1
-        self.k_psi = 0.2
-        self.kmin_u = 0.05
-        self.kmin_psi = 0.2
-        self.k2_u = 0.02
-        self.k2_psi = 0.1
-        self.mu_u = 0.05
-        self.mu_psi = 0.1
-        self.lambda_u = 0.001
-        self.lambda_psi = 1
+        # PID gains
+        self.kp_u = 1.6
+        self.ki_u = 0.2
+        self.kd_u = 0.1
+        self.kp_psi = 22.625
+        self.kd_psi = 10
+
+        self.k_ak = 5.72
+        self.k_ye = 0.5
+        self.sigma_ye = 1.
 
         # Second order filter gains (for r_d)
         self.f1 = 2.0
@@ -47,6 +46,9 @@ class UsvAsmc():
         self.integral_step = 0.01
 
         self.perturb_step = 0
+
+    def _wrap_angle(self, angle):
+        return np.arctan2(np.sin(angle), np.cos(angle))
 
     # position = eta
     # velocity = upsilon
@@ -67,34 +69,18 @@ class UsvAsmc():
             velocity = np.array([u, v, r])
             eta_dot_last = np.array([x_dot_last, y_dot_last, psi_dot_last])
             upsilon_dot_last = np.array([u_dot_last, v_dot_last, r_dot_last])
+            # print(thuster_perturbation)
 
             info = {}
-            beta = np.math.asin(velocity[1] / (0.001 + np.hypot(velocity[0], velocity[1])))
-            chi = psi + beta
-            # chi = np.where(np.greater(np.abs(chi), np.pi), (np.sign(chi)) * (np.abs(chi) - 2 * np.pi), chi)
 
-            # Compute the desired heading
-            psi_d = chi + action[1]
+            # TODO WRAP ANGLE
+            beta = np.math.asin(velocity[1] / (0.001 + np.hypot(velocity[0], velocity[1])))
+            psi_d = self._wrap_angle(psi + action[1] + beta)
             info['psi_d'] = psi_d
 
-            # psi_d = ak + action[1]
-            # psi_d = np.where(np.greater(np.abs(psi_d), np.pi), (np.sign(psi_d)) * (np.abs(psi_d) - 2 * np.pi), psi_d)
-
-            # Second order filter to compute desired yaw rate
-            r_d = (psi_d - psi_d_last) / self.integral_step
-            psi_d_last = psi_d
-            o_dot_dot = (((r_d - o_last) * self.f1) - (self.f3 * o_dot_last)) * self.f2
-            o_dot = self.integral_step * (o_dot_dot + o_dot_dot_last) / 2 + o_dot
-            o = self.integral_step * (o_dot + o_dot_last) / 2 + o
-            r_d = o
-            o_last = o
-            o_dot_last = o_dot
-            o_dot_dot_last = o_dot_dot
-
-            # Compute variable hydrodynamic coefficients
             Xu = -25
             Xuu = 0
-            if abs(velocity[0]) > 1.2:
+            if (abs(velocity[0]) > 1.2):
                 Xu = 64.55
                 Xuu = -70.92
 
@@ -107,59 +93,40 @@ class UsvAsmc():
             Nr = 0.02 * (-3.141592 * 1000) * \
                  np.sqrt(np.power(velocity[0], 2) + np.power(velocity[1], 2)) * 0.09 * 0.09 * 1.01 * 1.01
 
-            # Rewrite USV model in simplified components f and g
             g_u = 1 / (self.m - self.X_u_dot)
             g_psi = 1 / (self.Iz - self.N_r_dot)
+
             f_u = (((self.m - self.Y_v_dot) * velocity[1] * velocity[2] + (
-                    Xuu * np.abs(velocity[0]) + Xu * velocity[0])) / (self.m - self.X_u_dot))
+                        Xuu * np.abs(velocity[0]) + Xu * velocity[0])) / (self.m - self.X_u_dot))
             f_psi = (((-self.X_u_dot + self.Y_v_dot) * velocity[0] * velocity[1] + (Nr * velocity[2])) / (
-                    self.Iz - self.N_r_dot))
+                        self.Iz - self.N_r_dot))
 
-            # Compute heading error
-            e_psi = psi_d - position[2]
-            e_psi = np.where(np.greater(np.abs(e_psi), np.pi), (np.sign(e_psi)) * (np.abs(e_psi) - 2 * np.pi), e_psi)
-            e_psi_dot = r_d - velocity[2]
+            e_psi = self._wrap_angle(psi_d - position[2])
+            info['e_psi'] = e_psi
+            e_psi_dot = 0 - velocity[2]
 
-            # Compute desired speed (unnecessary if DNN gives it)
+            abs_e_psi = np.abs(e_psi)
+
+            u_psi = 1 / (1 + np.exp(10 * (abs_e_psi * (2 / np.pi) - 0.5)))
+
             u_d = action[0]
-            info['u_d'] = action[0]
+            info['u_d'] = u_d
 
-            # Compute speed error
             e_u = u_d - velocity[0]
+            info['e_u'] = e_u
             e_u_int = self.integral_step * (e_u + e_u_last) / 2 + e_u_int
-            e_u_last = e_u
+            e_u_dot = (e_u - e_u_last) / self.integral_step
 
-            # Create sliding surfaces for speed and heading
-            sigma_u = e_u + self.lambda_u * e_u_int
-            sigma_psi = e_psi_dot + self.lambda_psi * e_psi
+            ua_u = (self.kp_u * e_u) + (self.ki_u * e_u_int) + (self.kd_u * e_u_dot)
+            ua_psi = (self.kp_psi * e_psi) + (self.kd_psi * e_psi_dot)
 
-            # Compute ASMC gain derivatives
-            ka_dot_u = np.where(np.greater(ka_u, self.kmin_u), self.k_u * np.sign(np.abs(sigma_u) - self.mu_u),
-                                self.kmin_u)
-            ka_dot_psi = np.where(np.greater(ka_psi, self.kmin_psi),
-                                  self.k_psi * np.sign(np.abs(sigma_psi) - self.mu_psi), self.kmin_psi)
+            Tx = (-f_u + ua_u) / g_u
+            Tz = (-f_psi + ua_psi) / g_psi
 
-            # Compute gains
-            ka_u = self.integral_step * (ka_dot_u + ka_dot_u_last) / 2 + ka_u
-            ka_dot_u_last = ka_dot_u
-
-            ka_psi = self.integral_step * (ka_dot_psi + ka_dot_psi_last) / 2 + ka_psi
-            ka_dot_psi_last = ka_dot_psi
-
-            # Compute ASMC for speed and heading
-            ua_u = (-ka_u * np.power(np.abs(sigma_u), 0.5) * np.sign(sigma_u)) - (self.k2_u * sigma_u)
-            ua_psi = (-ka_psi * np.power(np.abs(sigma_psi), 0.5) * np.sign(sigma_psi)) - (self.k2_psi * sigma_psi)
-
-            # Compute control inputs for speed and heading
-            tx = ((self.lambda_u * e_u) - f_u - ua_u) / g_u
-            tz = ((self.lambda_psi * e_psi) - f_psi - ua_psi) / g_psi
-
-            # Compute both thrusters and saturate their values
-            tport = (tx / 2) + (tz / self.B)
-            tstbd = (tx / (2 * self.c)) - (tz / (self.B * self.c))
-
-            #tport = np.clip(tport, -30, 30)
-            #tstbd = np.clip(tstbd, -30, 30)
+            tport = (Tx / 2) + (Tz / self.B)
+            tstbd = (Tx / (2 * self.c)) - (Tz / (self.B * self.c))
+            tport = np.clip(tport, -30, 30)
+            tstbd = np.clip(tstbd, -30, 30)
 
             #if thuster_perturbation is not None:
             #    tport += thuster_perturbation[0]
@@ -182,20 +149,22 @@ class UsvAsmc():
 
             # Step increases every 0.01sec
             perturb_force = np.zeros(3)
+            info['perturb_force_x'] = 0
+            info['perturb_force_y'] = 0
+            info['perturb_force_local'] = 0
             if do_perturb:
-                freq = 10
+                freq = 15
                 magnitude = 5
-                t = self.perturb_step * self.integral_step
+                x = self.perturb_step * self.integral_step
                 k = freq * (2 * np.pi)
-                force_x = np.cos(t * k) * magnitude
-                force_y = np.cos(t + k + 10) * magnitude
+                force_x = np.cos(x * k) * magnitude
+                force_y = np.cos(x + k + 10) * magnitude
                 perturb_force = np.array([force_x, force_y, 0]) @ J
-                info['perturb_force_x_global'] = force_x
                 info['perturb_force_x'] = force_x
                 info['perturb_force_y'] = force_y
                 info['perturb_force_local'] = perturb_force
 
-            T += perturb_force
+            #T += perturb_force
             self.perturb_step += 1
 
             CRB = np.array([[0, 0, 0 - self.m * velocity[1]],
