@@ -278,27 +278,12 @@ class UsvAsmcCaEnv(gymnasium.Env):
 
         # Reshape state
         self.state = self.state.reshape(self.observation_space.shape[0]).astype(np.float32)
-        info['completed'] = arrived
-        info['action'] = action
-        info['action_in'] = action_in
-        info['position'] = self.position
-        info['velocity'] = self.velocity
-        info['target'] = self.target_point
-        info['obstacles'] = np.hstack((self.obs_x, self.obs_y))
-        info['obstacle_radius'] = self.obs_r
-        info['tracking_error'] = tracking_error
-        info['angle_to_target'] = angle_to_target
 
         if np.max(np.abs(self.position)) > 100:
             done = True
             truncated = True
 
-        self.plot_vars['action0'] = action_in[0]
-        self.plot_vars['action1'] = action_in[1]
-        self.plot_vars['u'] = u
-        self.plot_vars['r'] = r
-
-        return self.state, reward, done, truncated, info
+        return self.state, reward, done, truncated, {}
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
@@ -465,54 +450,38 @@ class UsvAsmcCaEnv(gymnasium.Env):
         distance_to_obs -= 0.25
         te[2] = 0
         r_tracking_error = -np.hypot(te[0], te[1]) * 30 - np.abs(angle_to_target / np.pi) * 2.25
-        #print(r_tracking_error)
         reward = r_tracking_error * 1.5
         r_delta = np.sum(np.abs(np.array(action) - np.average(action_history, axis=0))) * 1.25
         reward -= r_delta
-        #reward -= np.abs(action[1]) * 0.2
         reward_a = action[1] ** 2 * 2.5 + (np.abs(action[0]) - 1) ** 2 * 0.35
         reward -= reward_a
-        #print(f"reward_a: {reward_a} reward_delta: {r_delta}")
 
         reward_zone_r = 5.0
         punishment_zone_r = 3.0
         phi_rz = 2
         phi_pz = 15
         obs_oa_r = 0
-        #print(distance_to_obs)
         if punishment_zone_r < distance_to_obs < reward_zone_r:
             # Rewards zone
-            #print('reward')
             obs_oa_r = np.minimum(phi_rz,
                           1.0 / np.tanh(
                               (distance_to_obs - punishment_zone_r) /
                               (reward_zone_r - punishment_zone_r))).item()
-            #obs_oa_r = np.log(obs_oa_r)
             obs_oa_r = obs_oa_r
         elif 0 < distance_to_obs < punishment_zone_r:
             # Punishment zone
-            #print('punish')
             obs_oa_r = np.minimum(phi_pz,
                             1.0 / np.tanh((distance_to_obs) / (punishment_zone_r))).item()
-            #obs_oa_r = -np.log(obs_oa_r)
             obs_oa_r = -obs_oa_r
-            #print(f"Distance: {distance_to_obs} Obs: {obs_oa_r}")
         elif distance_to_obs < 0:
             # Obstacle
-            #print('obstacle')
             obs_oa_r = -200
 
         reward += obs_oa_r / 4.5
-        #print(f"r_tracking_error: {r_tracking_error} dist: {distance_to_obs} obs_oa_r {obs_oa_r / 3}")
 
         if arrived:
             reward += 150
 
-        #print(obs_oa_r)
-        #print(reward / 100)
-
-        #self.plot_vars['tracking_error'] = r_tracking_error / 10
-        #self.plot_vars['reward'] = reward / 10
         return reward, info
 
     @staticmethod
