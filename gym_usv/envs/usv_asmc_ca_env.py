@@ -12,8 +12,12 @@ from gymnasium import spaces
 import numpy as np
 from numba import njit
 from collections import deque
-from gym_usv.control import UsvAsmc, UsvPID
+from gym_usv.control import UsvPID
 from .usv_ca_renderer import UsvCaRenderer
+import usv_libs_py
+from usv_libs_py.utils import update_controller_and_model_n
+from usv_libs_py.controller import ASMC
+from usv_libs_py.model import DynamicModel
 
 class UsvAsmcCaEnv(gymnasium.Env):
     metadata = {'render.modes': ['human', 'rgb_array'], 'render_fps': 60}
@@ -114,7 +118,8 @@ class UsvAsmcCaEnv(gymnasium.Env):
 
         self.perturb_step = 0
 
-        self.asmc = UsvAsmc()
+        self.model = DynamicModel()
+        self.asmc = ASMC(ASMC.defaultParams())
         self.pid = UsvPID()
         self.reset()
 
@@ -145,7 +150,7 @@ class UsvAsmcCaEnv(gymnasium.Env):
         '''
         # Change from vectors to scalars
         u, v, r = self.velocity
-        self.position[2] = self._wrap_angle(self.position[2])
+        #self.position[2] = self._wrap_angle(self.position[2])
         x, y, psi = self.position
 
         action = [
@@ -174,10 +179,14 @@ class UsvAsmcCaEnv(gymnasium.Env):
             upsilon = u, v, r
             eta = x, y, psi
         elif control_type == "ASMC":
-            eta = self.position
-            upsilon = self.velocity
+            setpoint = usv_libs_py.controller.ASMCSetpoint()
+            setpoint.velocity = action[0]
+            setpoint.heading = action[1]
+            modelOut, asmcOut = usv_libs_py.utils.update_controller_and_model_n(self.model, self.asmc, setpoint, 10)
+            upsilon = modelOut.vel_x, modelOut.vel_y, modelOut.vel_r
+            eta = modelOut.pose_x, modelOut.pose_y, modelOut.pose_psi
 
-            eta, upsilon, asmc_info = self.asmc.compute(action, np.array(eta), np.array(upsilon), do_perturb=do_perturb)
+            #eta, upsilon, asmc_info = self.asmc.compute(action, np.array(eta), np.array(upsilon), do_perturb=do_perturb)
 
         elif control_type == "PID":
             eta = self.position
@@ -294,7 +303,7 @@ class UsvAsmcCaEnv(gymnasium.Env):
         theta = np.random.uniform(low=-np.pi / 4, high=np.pi / 4)
         self.position = [x, y, theta]
         self.start_position = self.position
-        self.action_vel_accel = np.zeros((2, 2))  # a', a''
+        self.model = DynamicModel(x, y, theta)
 
         self.action_history = deque([np.zeros(2)] * self.action_history_len, maxlen=self.action_history_len)
 
@@ -335,7 +344,7 @@ class UsvAsmcCaEnv(gymnasium.Env):
                             self.obs_y - self.position[1]) - self.obs_r - self.boat_radius - (self.safety_radius + 0.35)
         distance = distance.reshape(-1)
 
-        self.asmc = UsvAsmc()
+        self.asmc = ASMC(ASMC.defaultParams())
 
         # Delete all obstacles within boat radius
         elems_to_delete = np.flatnonzero(distance < 0)
