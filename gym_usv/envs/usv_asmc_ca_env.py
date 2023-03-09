@@ -15,7 +15,6 @@ from collections import deque
 from gym_usv.control import UsvPID
 from .usv_ca_renderer import UsvCaRenderer
 import usv_libs_py
-from usv_libs_py.utils import update_controller_and_model_n
 from usv_libs_py.controller import ASMC
 from usv_libs_py.model import DynamicModel
 
@@ -72,11 +71,11 @@ class UsvAsmcCaEnv(gymnasium.Env):
 
         # Min and max actions
         # velocity 
-        self.min_action0 = 0.65
-        self.max_action0 = 0.8
+        self.min_action0 = 0.2
+        self.max_action0 = 0.4
         # angle (change to -pi and pi if necessary)
-        self.min_action1 = -np.pi / 2.5 / 10
-        self.max_action1 = np.pi / 2.5 / 10
+        self.min_action1 = -np.pi / 8
+        self.max_action1 = np.pi / 8
 
         # Min and max values of the state
         self.min_u = -2.5 / 2
@@ -160,6 +159,8 @@ class UsvAsmcCaEnv(gymnasium.Env):
 
         self.perturb_step += 1
         do_perturb = self.perturb_range[0] < self.perturb_step < self.perturb_range[1]
+        model_history = None
+        controller_history = None
 
         control_type = "ASMC"
         if control_type == "kinematic":
@@ -182,9 +183,12 @@ class UsvAsmcCaEnv(gymnasium.Env):
             setpoint = usv_libs_py.controller.ASMCSetpoint()
             setpoint.velocity = action[0]
             setpoint.heading = action[1]
-            modelOut, asmcOut = usv_libs_py.utils.update_controller_and_model_n(self.model, self.asmc, setpoint, 10)
-            upsilon = modelOut.vel_x, modelOut.vel_y, modelOut.vel_r
-            eta = modelOut.pose_x, modelOut.pose_y, modelOut.pose_psi
+            model_history, controller_history = usv_libs_py.utils.update_controller_and_model_n(self.model, self.asmc, setpoint, 10)
+
+            model_out = model_history[-1]
+            upsilon = model_out.vel_x, model_out.vel_y, model_out.vel_r
+            eta = model_out.pose_x, model_out.pose_y, model_out.pose_psi
+            #print(f"velocity: {action[0]} error: {asmcOut.speed_error}")
 
             #eta, upsilon, asmc_info = self.asmc.compute(action, np.array(eta), np.array(upsilon), do_perturb=do_perturb)
 
@@ -270,8 +274,8 @@ class UsvAsmcCaEnv(gymnasium.Env):
             sensors[:,1]
         ))
 
-        if np.max(np.abs(self.state)) > 1.0:
-            print(self.state)
+        #if np.max(np.abs(self.state)) > 1.0:
+        #    print(self.state)
 
         self.action_history.append(action)
 
@@ -292,7 +296,19 @@ class UsvAsmcCaEnv(gymnasium.Env):
             done = True
             truncated = True
 
-        return self.state, reward, done, truncated, {}
+        info = {
+            "action": action,
+            "position": self.position,
+            "velocity": self.velocity,
+            "action_in": action_in,
+            "obstacle_radius": self.obs_r,
+            "obstacles": np.hstack((self.obs_x, self.obs_y)),
+            "target": self.target_point,
+            "controller_history": controller_history,
+            "model_history": model_history
+        }
+
+        return self.state, reward, done, truncated, info
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
@@ -456,19 +472,18 @@ class UsvAsmcCaEnv(gymnasium.Env):
                        distance_to_obs):
         info = {}
         te = tracking_error.copy()
-        distance_to_obs -= 0.25
         te[2] = 0
         r_tracking_error = -np.hypot(te[0], te[1]) * 30 - np.abs(angle_to_target / np.pi) * 2.25
-        reward = r_tracking_error * 1.5
+        reward = r_tracking_error * 10
         r_delta = np.sum(np.abs(np.array(action) - np.average(action_history, axis=0))) * 1.25
-        reward -= r_delta
+        reward -= r_delta * 0
         reward_a = action[1] ** 2 * 2.5 + (np.abs(action[0]) - 1) ** 2 * 0.35
-        reward -= reward_a
+        reward -= reward_a * 0
 
         reward_zone_r = 5.0
         punishment_zone_r = 3.0
-        phi_rz = 2
-        phi_pz = 15
+        phi_rz = 5
+        phi_pz = 20
         obs_oa_r = 0
         if punishment_zone_r < distance_to_obs < reward_zone_r:
             # Rewards zone
@@ -486,7 +501,7 @@ class UsvAsmcCaEnv(gymnasium.Env):
             # Obstacle
             obs_oa_r = -200
 
-        reward += obs_oa_r / 4.5
+        reward += obs_oa_r
 
         if arrived:
             reward += 150

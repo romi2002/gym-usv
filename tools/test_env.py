@@ -66,7 +66,7 @@ if __name__ == '__main__':
 
         if args.render:
             keys = pygame.key.get_pressed()
-            vel = 0.01
+            vel = 0.1
             if keys[pygame.K_LEFT]:
                 action[1] = -1
             elif keys[pygame.K_RIGHT]:
