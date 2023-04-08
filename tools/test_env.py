@@ -52,10 +52,10 @@ if __name__ == '__main__':
     parser.add_argument('--steps', type=int, nargs='?', default=5000)
     args = parser.parse_args()
 
-    env = gymnasium.make('usv-asmc-ca-v0', render_mode='human', perturb_range=(0, 0))
+    env = gymnasium.make('usv-asmc-simple', render_mode='human')
     env.reset(options=experiment_1_options())
     start = time.perf_counter()
-    action = np.array([-1.0, -1.0])
+    action = np.array([0, -1.0])
     for i in range(args.steps):
         _, _, done, truncated, info = env.step(action)
         if(args.render):
@@ -77,7 +77,7 @@ if __name__ == '__main__':
             if keys[pygame.K_UP]:
                 action[0] = 1
             elif keys[pygame.K_DOWN]:
-                action[0] = -1
+                action[0] = 0
 
         action = np.clip(action, -1, 1)
         time.sleep(0.025)

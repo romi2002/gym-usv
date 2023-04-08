@@ -8,7 +8,7 @@ from stable_baselines3.common.callbacks import BaseCallback
 import gym_usv
 from torch import nn
 
-env_name = "usv-asmc-ca-v0"
+env_name = "usv-asmc-simple"
 total_timesteps = 10e6
 config = {
     "use_sde": True,
@@ -25,7 +25,7 @@ config = {
 }
 
 run = wandb.init(
-    project="gym_usv_sb3",
+    project="usv-asmc-simple",
     config=config,
     sync_tensorboard=True,  # auto-upload sb3's tensorboard metrics
     save_code=True,  # optional
@@ -56,7 +56,7 @@ class VideoCallback(BaseCallback):
         pass
 
 def make_env():
-    env = gym.make(env_name)
+    env = gym.make(env_name, render_mode="rgb_array")
     env = gym.wrappers.RecordEpisodeStatistics(env)  # record stats such as returns
     env = gym.wrappers.RecordVideo(env, f"videos/{run.id}")
     return env

@@ -20,3 +20,9 @@ register(
     entry_point='gym_usv.envs:UsvAsmcCaEnv',
     max_episode_steps=5000,
 )
+
+register(
+    id='usv-asmc-simple',
+    entry_point='gym_usv.envs:UsvSimpleEnv',
+    max_episode_steps=1000,
+)
