@@ -66,7 +66,7 @@ if __name__ == '__main__':
 
         if args.render:
             keys = pygame.key.get_pressed()
-            vel = 0.1
+            vel = 1
             if keys[pygame.K_LEFT]:
                 action[1] = -1
             elif keys[pygame.K_RIGHT]:
@@ -75,9 +75,9 @@ if __name__ == '__main__':
                 action[1] = 0
 
             if keys[pygame.K_UP]:
-                action[0] += vel
+                action[0] = 1
             elif keys[pygame.K_DOWN]:
-                action[0] -= vel
+                action[0] = -1
 
         action = np.clip(action, -1, 1)
         time.sleep(0.025)
