@@ -246,7 +246,7 @@ class UsvAsmcCaEnv(gymnasium.Env):
             collision = (nearest_obstacle_distance < 0)
 
         # Compute sensor readings
-        self.sensors = self._compute_sensor_measurments(
+        self.sensors = self.compute_sensor_measurments(
             self.position,
             self.sensor_num,
             self.sensor_max_range,
@@ -409,8 +409,8 @@ class UsvAsmcCaEnv(gymnasium.Env):
         )
 
     @staticmethod
-    def _compute_sensor_measurments(position, sensor_count, sensor_max_range, radius, lidar_resolution, posx, posy,
-                                    num_obs, distance):
+    def compute_sensor_measurments(position, sensor_count, sensor_max_range, radius, lidar_resolution, posx, posy,
+                                   num_obs, distance):
         x = position[0]
         y = position[1]
         psi = position[2]
@@ -420,7 +420,8 @@ class UsvAsmcCaEnv(gymnasium.Env):
         sensors = np.vstack((-np.pi * 2 / 3 + np.arange(sensor_count) * lidar_resolution,
                              np.ones(sensor_count) * sensor_max_range)).T
 
-        sensor_angles = sensors[:, 0] + psi
+        sensors[:, 0] += psi
+        sensor_angles = sensors[:, 0]
         # sensor_angles = np.where(np.greater(np.abs(sensor_angles), np.pi),
         #                         np.sign(sensor_angles) * (np.abs(sensor_angles) - 2 * np.pi), sensor_angles)
 
@@ -438,7 +439,7 @@ class UsvAsmcCaEnv(gymnasium.Env):
     @staticmethod
     @njit
     def _compute_sensor_distances(sensor_max_range, num_obs, sensors, radius, ned_obstacle_positions, obs_order):
-        new_distances = np.full(len(sensors), sensor_max_range)
+        new_distances = np.full(len(sensors), sensor_max_range, np.float64)
         for i in range(len(sensors)):
             for j in range(num_obs):
                 (obs_x, obs_y) = ned_obstacle_positions[i][j]
@@ -455,7 +456,7 @@ class UsvAsmcCaEnv(gymnasium.Env):
 
                 new_distance = obs_x - np.sqrt(delta)
                 if new_distance < sensor_max_range:
-                    new_distances[i] = min(new_distance[0], sensors[i][1])
+                    new_distances[i] = min(new_distance, sensors[i][1])
                     break
         return new_distances
 

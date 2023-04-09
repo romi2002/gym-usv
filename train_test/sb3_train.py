@@ -13,19 +13,19 @@ total_timesteps = 10e6
 config = {
     "use_sde": True,
     #"learning_rate": 0.001,
-    #"sde_sample_freq": 4,
-    # "n_steps": 512,
-    # "batch_size": 64,
+    "sde_sample_freq": 4,
+    "n_steps": 512,
+    "batch_size": 64,
     # "gamma": 0.999,
-    # "policy_kwargs": dict(log_std_init=-2,
-    #        ortho_init=True,
-    #        activation_fn=nn.ReLU,
-    #        net_arch=dict(pi=[256, 256], vf=[256, 256])
-    #        )
+    "policy_kwargs": dict(log_std_init=-2,
+           ortho_init=True,
+           activation_fn=nn.ReLU,
+           net_arch=dict(pi=[512, 512], vf=[512, 512])
+           )
 }
 
 run = wandb.init(
-    project="usv-asmc-simple",
+    project="usv-simple",
     config=config,
     sync_tensorboard=True,  # auto-upload sb3's tensorboard metrics
     save_code=True,  # optional
