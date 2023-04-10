@@ -16,12 +16,13 @@ class UsvSimpleASMCEnv(UsvSimpleEnv):
         return super().reset(seed=seed)
 
     def step(self, action):
-        self.position, self.velocity, _ = self.asmc.compute(
-            action,
-            self.position,
-            self.velocity,
-            False
-        )
+        for _ in range(2):
+            self.position, self.velocity, _ = self.asmc.compute(
+                action,
+                self.position,
+                self.velocity,
+                False
+            )
 
         return super().step(np.zeros(2))
 

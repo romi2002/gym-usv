@@ -1,6 +1,6 @@
 import os
 import gymnasium as gym
-from stable_baselines3 import PPO
+from stable_baselines3 import PPO, SAC
 from stable_baselines3.common.vec_env import DummyVecEnv
 import wandb
 from wandb.integration.sb3 import WandbCallback
@@ -8,9 +8,9 @@ from stable_baselines3.common.callbacks import BaseCallback
 import gym_usv
 from torch import nn
 
-env_name = "usv-asmc-simple"
+env_name = "usv-simple"
 total_timesteps = 10e6
-config = {
+config_ppo = {
     "use_sde": True,
     #"learning_rate": 0.001,
     "sde_sample_freq": 4,
@@ -24,8 +24,29 @@ config = {
            )
 }
 
+config_sac = {
+    "use_sde": True,
+    #"learning_rate": 0.001,
+    "sde_sample_freq": 4,
+    "buffer_size": 1000000,
+    "batch_size": 256,
+    "ent_coef": 'auto',
+    "gamma": 0.99,
+    "tau": 0.01,
+    "train_freq": 1,
+    "gradient_steps": 1,
+    "learning_starts": 10000,
+    # "gamma": 0.999,
+    "policy_kwargs": dict(
+        log_std_init=-2,
+        net_arch=[400, 300]
+    )
+}
+
+config = config_sac
+
 run = wandb.init(
-    project="usv-simple",
+    project="usv-asmc-simple",
     config=config,
     sync_tensorboard=True,  # auto-upload sb3's tensorboard metrics
     save_code=True,  # optional
@@ -62,7 +83,7 @@ def make_env():
     return env
 
 env = DummyVecEnv([make_env])
-model = PPO("MlpPolicy", env, verbose=1, tensorboard_log=f"runs/{run.id}", **config)
+model = SAC("MlpPolicy", env, verbose=1, tensorboard_log=f"runs/{run.id}", **config)
 model.learn(
     total_timesteps=total_timesteps,
     callback=[WandbCallback(

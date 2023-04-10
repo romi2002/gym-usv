@@ -8,9 +8,9 @@ class UsvSimpleEnv(gym.Env):
     metadata = {"render_modes": ["human", "rgb_array"], "render_fps": 30}
 
     def __init__(self, render_mode=None):
-        self.sensor_count = 64
+        self.sensor_count = 32
         self.sensor_span = (2/3) * (2*np.pi)
-        self.sensor_max_range = 10
+        self.sensor_max_range = 100
         self.sensor_resolution = self.sensor_span / self.sensor_count
 
         # state: u, v, r
@@ -23,10 +23,10 @@ class UsvSimpleEnv(gym.Env):
         #         # "environment": spaces.Box(-1, 1, shape=(32,), dtype=np.float32),
         #     }
         # )
-        self.observation_space = spaces.Box(-1, 1, shape=(5 + self.sensor_count,), dtype=np.float64)
+        self.observation_space = spaces.Box(-1, 1, shape=(5 + self.sensor_count,), dtype=np.float32)
 
         # dU, dR
-        self.action_space = spaces.Box(np.array([0.25, -1]), np.array([1, 1]), shape=(2,), dtype=np.float64)
+        self.action_space = spaces.Box(np.array([0.2, -1]), np.array([1, 1]), shape=(2,), dtype=np.float32)
         # u, v, r
         self.max_action = np.array([5, 0, 5])
         self.max_acceleration = np.array([0.75, 0, 5])
@@ -62,16 +62,16 @@ class UsvSimpleEnv(gym.Env):
     def _get_target_state(self):
         # Compute angle and distance to target
         distance = np.hypot(*(self.position[:2] - self.target_position))
-        angle = self._wrap_angle(np.arctan2(*(self.target_position - self.position[:2])) - self.position[2] - np.pi/2)
+        angle = self._wrap_angle(np.arctan2(*(self.target_position - self.position[:2])) + self.position[2] - np.pi/2)
         return np.array([angle, distance]) / [np.pi, np.hypot(self.env_bounds[1], self.env_bounds[1])]
 
     def _get_sensor_state(self):
-        return self.sensor_data[:,1] / self.sensor_max_range
+        return self.sensor_data[:, 1] / self.sensor_max_range
 
     def _get_obs(self):
         sensor_state = self._get_sensor_state()
         target_state = self._get_target_state()
-        return np.hstack((self.velocity / 10, target_state, sensor_state))
+        return np.hstack((self.velocity / 10, target_state, sensor_state)).astype(np.float32)
         # return {
         #     "state": self.velocity,
         #     "target": self._get_target_state() / [np.pi, np.hypot(self.env_bounds[1], self.env_bounds[1])]
@@ -172,17 +172,18 @@ class UsvSimpleEnv(gym.Env):
     def _get_reward(self):
         target_info = self._get_target_state()
 
-        min_sensor = np.min(self.sensor_data[:,1])
+        min_sensor = np.min(self.sensor_data[:, 1])
         colision_reward = 0
         if min_sensor < 0.2:
-            colision_reward = -50
+            colision_reward = -75
 
         arrived_reward = 0
         if target_info[1] < 0.1:
-            arrived_reward = 100
+            arrived_reward = 500
 
         reward = -target_info[1] / 5 + colision_reward - np.abs(self.last_action[1]) + arrived_reward
         reward = arrived_reward + colision_reward - target_info[1] / 5
+        reward = arrived_reward + colision_reward - 0.75 - target_info[1] / 10
 
         return reward
         return -np.abs(target_info[0]) - target_info[1]  # Use distance to target
@@ -224,7 +225,7 @@ class UsvSimpleEnv(gym.Env):
         self.max_acceleration[1] = 0
 
         # Generate obstacle positions
-        self.obstacle_n = self.np_random.integers(5, 10)
+        self.obstacle_n = self.np_random.integers(5, 15)
         self.obstacle_positions = self.np_random.uniform(*self.env_bounds, size=(self.obstacle_n, 2))
 
         # Remove obstacles next to usv position or target position
@@ -232,7 +233,13 @@ class UsvSimpleEnv(gym.Env):
         distance_to_target = np.hypot(self.target_position[0] - self.obstacle_positions[:,0], self.target_position[1] - self.obstacle_positions[:,1])
         elems_to_delete = np.hstack((np.flatnonzero(distance_to_position < 0.5), np.flatnonzero(distance_to_target < 0.5)))
         self.obstacle_positions = np.delete(self.obstacle_positions, elems_to_delete, axis=0)
-        self.obstacle_n -= elems_to_delete.size
+        self.obstacle_n = self.obstacle_positions.shape[0]
+
+        if self.obstacle_n == 0:
+            # Place one obstacle just so we don't get a crash :(
+            print("ADDING AN OBSTACLE BACK IN")
+            self.obstacle_positions = self.np_random.uniform(*self.env_bounds, size=(1, 2))
+            self.obstacle_n = 1
 
         self.obstacle_radius = self.np_random.uniform(0.15, 0.5, size=self.obstacle_n)
 
