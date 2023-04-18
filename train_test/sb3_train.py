@@ -3,10 +3,10 @@ import gymnasium as gym
 from stable_baselines3 import PPO, SAC
 from stable_baselines3.common.vec_env import DummyVecEnv
 import wandb
-from wandb.integration.sb3 import WandbCallback
 from stable_baselines3.common.callbacks import BaseCallback
 import gym_usv
 from torch import nn
+from wandb_callback import WandbCallback
 
 env_name = "usv-simple"
 total_timesteps = 10e6
@@ -14,7 +14,7 @@ config_ppo = {
     "use_sde": True,
     #"learning_rate": 0.001,
     "sde_sample_freq": 4,
-    "n_steps": 512,
+    "n_steps": 2048,
     "batch_size": 64,
     # "gamma": 0.999,
     "policy_kwargs": dict(log_std_init=-2,
@@ -31,14 +31,13 @@ config_sac = {
     "buffer_size": 1000000,
     "batch_size": 256,
     "ent_coef": 'auto',
-    "gamma": 0.99,
-    "tau": 0.01,
     "train_freq": 1,
     "gradient_steps": 1,
     "learning_starts": 10000,
+    "learning_rate": 0.0003,
     # "gamma": 0.999,
     "policy_kwargs": dict(
-        log_std_init=-2,
+        log_std_init=-3,
         net_arch=[400, 300]
     )
 }
@@ -87,10 +86,10 @@ model = SAC("MlpPolicy", env, verbose=1, tensorboard_log=f"runs/{run.id}", **con
 model.learn(
     total_timesteps=total_timesteps,
     callback=[WandbCallback(
-        gradient_save_freq=100,
-        model_save_freq=100,
+        gradient_save_freq=1000,
+        model_save_freq=100000,
         model_save_path=f"models/{run.id}",
-        verbose=2,
+        verbose=1,
     ), VideoCallback()],
 )
 run.finish()

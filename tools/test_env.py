@@ -56,7 +56,13 @@ if __name__ == '__main__':
     env.reset(options=experiment_1_options())
     start = time.perf_counter()
     action = np.array([0, -1.0])
+    r = 0
     for i in range(args.steps):
+        # if r == 50:
+        #     print('reset')
+        #     env.reset()
+        #     r = 0
+        # r += 1
         _, _, done, truncated, info = env.step(action)
         if(args.render):
             env.render()
