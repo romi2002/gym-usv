@@ -24,7 +24,7 @@ class UsvSimpleEnv(gym.Env):
         #         # "environment": spaces.Box(-1, 1, shape=(32,), dtype=np.float32),
         #     }
         # )
-        self.observation_space = spaces.Box(-1, 1, shape=(5 + self.sensor_count,), dtype=np.float32)
+        self.observation_space = spaces.Box(-1, 1, shape=(13 + self.sensor_count,), dtype=np.float32)
 
         # dU, dR
         self.action_space = spaces.Box(np.array([0.2, -1]), np.array([1, 1]), shape=(2,), dtype=np.float32)
@@ -69,11 +69,18 @@ class UsvSimpleEnv(gym.Env):
     def _get_sensor_state(self):
         return self.sensor_data[:, 1] / self.sensor_max_range
 
+    def _get_kinem_obs(self):
+        return np.hstack((
+            self.max_action / 10,
+            self.max_acceleration / 10
+        ))
+
     def _get_obs(self):
         sensor_state = self._get_sensor_state()
         target_state = self._get_target_state()
         action_state = self.last_action[[0, 2]] / self.max_action[[0, 2]]
-        return np.hstack((self.velocity / 10, target_state, sensor_state)).astype(np.float32)
+        kinem_state = self._get_kinem_obs()
+        return np.hstack((self.velocity / 10, target_state, action_state, kinem_state, sensor_state)).astype(np.float32)
         # return {
         #     "state": self.velocity,
         #     "target": self._get_target_state() / [np.pi, np.hypot(self.env_bounds[1], self.env_bounds[1])]
@@ -222,8 +229,10 @@ class UsvSimpleEnv(gym.Env):
         self.target_position = self.np_random.uniform(*self.env_bounds, size=2)
         self.velocity = self.np_random.uniform(0.0, 0.15, size=3)
 
-        self.max_acceleration = self.np_random.uniform(0.5, 2, size=3)
+        self.max_action = self.np_random.uniform(0.5, 5, size=3)
+        self.max_acceleration = self.np_random.uniform(0.25, 1, size=3)
         self.max_acceleration[1] = 0
+        self.max_action[1] = 0
 
         # Generate obstacle positions
         self.obstacle_n = self.np_random.integers(5, 15)
