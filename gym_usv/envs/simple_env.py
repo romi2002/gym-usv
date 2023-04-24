@@ -63,7 +63,8 @@ class UsvSimpleEnv(gym.Env):
     def _get_target_state(self):
         # Compute angle and distance to target
         distance = np.hypot(*(self.position[:2] - self.target_position))
-        angle = self._wrap_angle(np.arctan2(*(self.target_position - self.position[:2])) + self.position[2] - np.pi / 2)
+        delta_pos = (self.target_position - self.position[:2])
+        angle = self._wrap_angle(np.arctan2(*delta_pos) - self.position[2] - np.pi / 2)
         return np.array([angle, distance]) / [np.pi, np.hypot(self.env_bounds[1], self.env_bounds[1])]
 
     def _get_sensor_state(self):
@@ -190,7 +191,7 @@ class UsvSimpleEnv(gym.Env):
 
         reward = -target_info[1] / 5 + colision_reward - np.abs(self.last_action[1]) + arrived_reward
         reward = arrived_reward + colision_reward - target_info[1] / 5
-        reward = arrived_reward + colision_reward - 1 - np.abs(self.last_action[1]) * 0.5 + np.cos(target_info[1]) / np.pi
+        reward = arrived_reward + colision_reward - 1 - target_info[1] / 5
         # reward = arrived_reward + colision_reward - 5
 
         return reward
@@ -229,8 +230,8 @@ class UsvSimpleEnv(gym.Env):
         self.target_position = self.np_random.uniform(*self.env_bounds, size=2)
         self.velocity = self.np_random.uniform(0.0, 0.15, size=3)
 
-        self.max_action = self.np_random.uniform(0.5, 5, size=3)
-        self.max_acceleration = self.np_random.uniform(0.25, 1, size=3)
+        self.max_action = self.np_random.uniform(3.5, 5, size=3)
+        self.max_acceleration = self.np_random.uniform(0.5, 0.75, size=3)
         self.max_acceleration[1] = 0
         self.max_action[1] = 0
 

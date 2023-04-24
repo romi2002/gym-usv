@@ -52,7 +52,7 @@ if __name__ == '__main__':
     parser.add_argument('--steps', type=int, nargs='?', default=5000)
     args = parser.parse_args()
 
-    env = gymnasium.make('usv-asmc-simple', render_mode='human')
+    env = gymnasium.make('usv-simple', render_mode='human')
     env.reset(options=experiment_1_options())
     start = time.perf_counter()
     action = np.array([0, -1.0])
