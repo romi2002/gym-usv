@@ -24,11 +24,17 @@ register(
 register(
     id='usv-simple',
     entry_point='gym_usv.envs:UsvSimpleEnv',
-    max_episode_steps=1000,
+    max_episode_steps=150,
 )
 
 register(
     id='usv-asmc-simple',
     entry_point='gym_usv.envs:UsvSimpleASMCEnv',
     max_episode_steps=1000
+)
+
+register(
+    id='usv-aitsmc-simple',
+    entry_point='gym_usv.envs:UsvSimpleAITSMCEnv',
+    max_episode_steps=150
 )

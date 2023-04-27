@@ -24,13 +24,13 @@ class UsvSimpleEnv(gym.Env):
         #         # "environment": spaces.Box(-1, 1, shape=(32,), dtype=np.float32),
         #     }
         # )
-        self.observation_space = spaces.Box(-1, 1, shape=(13 + self.sensor_count,), dtype=np.float32)
+        self.observation_space = spaces.Box(-1, 1, shape=(8 + self.sensor_count,), dtype=np.float32)
 
         # dU, dR
         self.action_space = spaces.Box(np.array([0.2, -1]), np.array([1, 1]), shape=(2,), dtype=np.float32)
         # u, v, r
-        self.max_action = np.array([5, 0, 5])
-        self.max_acceleration = np.array([0.75, 0, 5])
+        self.max_action = np.array([3, 0, 3])
+        self.max_acceleration = np.array([1.75, 0, 3])
         self.dt = (1 / 50)
 
         # Current state
@@ -45,6 +45,9 @@ class UsvSimpleEnv(gym.Env):
         self.obstacle_radius = None
         self.sensor_data = np.zeros(shape=(self.sensor_count, 2))
 
+        self.path_start = np.zeros(2)
+        self.path_end = np.zeros(2)
+        self.progress = 0
         self.target_position = np.zeros(2)
 
         self.env_bounds = (0, 10)
@@ -64,8 +67,10 @@ class UsvSimpleEnv(gym.Env):
         # Compute angle and distance to target
         distance = np.hypot(*(self.position[:2] - self.target_position))
         delta_pos = (self.target_position - self.position[:2])
-        angle = self._wrap_angle(np.arctan2(*delta_pos) - self.position[2] - np.pi / 2)
-        return np.array([angle, distance]) / [np.pi, np.hypot(self.env_bounds[1], self.env_bounds[1])]
+        angle = self._wrap_angle(np.arctan2(delta_pos[1], delta_pos[0]) - self.position[2])
+        #print(angle)
+        ye = np.abs(self._get_ye())
+        return np.array([angle, distance, ye]) / [np.pi, np.hypot(self.env_bounds[1], self.env_bounds[1]), 10]
 
     def _get_sensor_state(self):
         return self.sensor_data[:, 1] / self.sensor_max_range
@@ -81,15 +86,25 @@ class UsvSimpleEnv(gym.Env):
         target_state = self._get_target_state()
         action_state = self.last_action[[0, 2]] / self.max_action[[0, 2]]
         kinem_state = self._get_kinem_obs()
-        return np.hstack((self.velocity / 10, target_state, action_state, kinem_state, sensor_state)).astype(np.float32)
+        return np.hstack((self.velocity / 10, target_state, action_state, sensor_state)).astype(np.float32)
         # return {
         #     "state": self.velocity,
         #     "target": self._get_target_state() / [np.pi, np.hypot(self.env_bounds[1], self.env_bounds[1])]
         # }
 
-    def _get_info(self):
+    def _get_info(self, reward, action):
         return {
-
+            'position': self.position,
+            'velocity': self.velocity,
+            'path_start': self.path_start,
+            'path_end': self.path_end,
+            'reward': reward,
+            'action0': action[0],
+            'action1': action[2],
+            'left_thruster': 0,
+            'right_thruster': 0,
+            'ye': self._get_ye(),
+            'angle_to_target': self._get_target_state()[0]
         }
 
     def render(self):
@@ -163,6 +178,15 @@ class UsvSimpleEnv(gym.Env):
                 radius * scale
             )
 
+        # Draw path line
+        pygame.draw.line(
+            canvas,
+            (100, 0, 0),
+            self.path_start * scale,
+            self.path_end * scale,
+            width=5
+        )
+
         if self.render_mode == "human":
             # The following line copies our drawings from `canvas` to the visible window
             self.window.blit(canvas, canvas.get_rect())
@@ -177,22 +201,41 @@ class UsvSimpleEnv(gym.Env):
                 np.array(pygame.surfarray.pixels3d(canvas)), axes=(1, 0, 2)
             )
 
+    def _get_ye(self):
+        a_k = np.arctan2(self.path_end[1] - self.path_start[1], self.path_end[0] - self.path_start[0])
+        return -(self.position[0] - self.path_start[0]) * np.sin(a_k) + (self.position[1] - self.path_start[1]) * np.cos(
+            a_k)
+
+    def _get_closest_point(self):
+        x1, y1 = self.path_start
+        x2, y2 = self.path_end
+        x3, y3, _ = self.position
+        dx, dy = x2 - x1, y2 - y1
+        det = dx * dx + dy * dy
+        a = (dy * (y3 - y1) + dx * (x3 - x1)) / det
+        a += 0.15
+        a = np.clip(a, self.progress, 1)
+        return np.array([x1 + a * dx, y1 + a * dy]), a
+
     def _get_reward(self):
         target_info = self._get_target_state()
 
         min_sensor = np.min(self.sensor_data[:, 1])
         colision_reward = 0
         if min_sensor < 0.2:
-            colision_reward = -50
+            colision_reward = 0
 
         arrived_reward = 0
-        if target_info[1] < 0.2:
-            arrived_reward = 1000
+        if target_info[1] < 0.25 and self.progress > 0.9:
+            arrived_reward = 0
 
         reward = -target_info[1] / 5 + colision_reward - np.abs(self.last_action[1]) + arrived_reward
         reward = arrived_reward + colision_reward - target_info[1] / 5
-        reward = arrived_reward + colision_reward - 1 - target_info[1] / 5
+        reward = arrived_reward + colision_reward + np.exp(-np.abs(self._get_ye())) + np.exp(-np.abs(target_info[0]))
+        #print(reward)
+        # print(f'{np.abs(self._get_ye())} {np.abs(target_info[0])}')
         # reward = arrived_reward + colision_reward - 5
+        #print(reward)
 
         return reward
         return -np.abs(target_info[0]) - target_info[1]  # Use distance to target
@@ -224,19 +267,26 @@ class UsvSimpleEnv(gym.Env):
         # Set v velocity to 0
         self.velocity[1] = 0
 
-        # Random start position and initial velocity
-        self.position = self.np_random.uniform(*self.env_bounds, size=3)
-        self.position[2] = self.np_random.uniform(-np.pi, np.pi)
+        self.path_start = self.np_random.normal(scale=0.5, size=2) + np.array([self.env_bounds[1], self.env_bounds[1]]) / 2
+        self.position = np.hstack((self.np_random.normal(self.path_start, scale=0.75), self.np_random.uniform(-np.pi, np.pi)))
+        self.position = np.hstack((self.path_start, self.np_random.uniform(-np.pi, np.pi)))
+
+        # Chose random angle and distance for path
+        angle = self.np_random.uniform(-np.pi, np.pi)
+        dist = self.np_random.uniform(6, 8)
+        self.path_end = self.path_start + np.array([np.cos(angle), np.sin(angle)]) * dist
+
         self.target_position = self.np_random.uniform(*self.env_bounds, size=2)
         self.velocity = self.np_random.uniform(0.0, 0.15, size=3)
+        self.progress = 0
 
-        self.max_action = self.np_random.uniform(3.5, 5, size=3)
-        self.max_acceleration = self.np_random.uniform(0.5, 0.75, size=3)
+        self.max_action = self.np_random.uniform(2.0, 3, size=3)
+        # self.max_acceleration = self.np_random.uniform(0.5, 0.75, size=3)
         self.max_acceleration[1] = 0
         self.max_action[1] = 0
 
         # Generate obstacle positions
-        self.obstacle_n = self.np_random.integers(5, 15)
+        self.obstacle_n = self.np_random.integers(20, 45)
         self.obstacle_positions = self.np_random.uniform(*self.env_bounds, size=(self.obstacle_n, 2))
 
         # Remove obstacles next to usv position or target position
@@ -258,7 +308,7 @@ class UsvSimpleEnv(gym.Env):
         self.obstacle_radius = self.np_random.uniform(0.15, 0.5, size=self.obstacle_n)
 
         obs = self._get_obs()
-        info = self._get_info()
+        info = self._get_info(-1, np.zeros(3))
 
         if self.render_mode == "human":
             self._render_frame()
@@ -282,17 +332,22 @@ class UsvSimpleEnv(gym.Env):
         # self.position[:2] = np.clip(self.position[:2], *self.env_bounds)
         # self.position[2] = 0
 
+        self.target_position, self.progress = self._get_closest_point()
+
         obstacle_distance, self.sensor_data = self._compute_sensor_measurment()
 
         if self.render_mode == "human":
             self._render_frame()
 
-        terminated = np.hypot(*(self.position[:2] - self.target_position)) < 0.5 or np.min(obstacle_distance) < 0.1
+        dist_to_target = np.hypot(*(self.position[:2] - self.target_position))
+        terminated = (self.progress > 0.9 and dist_to_target < 0.2) or np.min(obstacle_distance) < 0.1
+        #print(f"Progress: {self.progress} Dist: {dist_to_target}")
         truncated = False
 
         obs = self._get_obs()
-        info = self._get_info()
         reward = self._get_reward()
+        # print(reward)
+        info = self._get_info(reward, action)
         # print(reward)
 
         return obs, reward, terminated, truncated, info

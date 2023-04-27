@@ -27,18 +27,18 @@ config_ppo = {
 config_sac = {
     "use_sde": True,
     #"learning_rate": 0.001,
-    "sde_sample_freq": 4,
-    "buffer_size": 1000000,
-    "batch_size": 256,
+    "buffer_size": 50000,
+    "batch_size": 512,
     "ent_coef": 'auto',
-    "train_freq": 1,
-    "gradient_steps": 1,
+    "train_freq": 32,
+    "gradient_steps": 32,
     "learning_starts": 10000,
     "learning_rate": 0.0003,
+    "gamma": 0.999,
     # "gamma": 0.999,
     "policy_kwargs": dict(
         log_std_init=-3,
-        net_arch=[400, 300]
+        net_arch=[128, 128]
     )
 }
 
