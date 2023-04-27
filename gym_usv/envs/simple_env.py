@@ -217,7 +217,7 @@ class UsvSimpleEnv(gym.Env):
         a = np.clip(a, self.progress, 1)
         return np.array([x1 + a * dx, y1 + a * dy]), a
 
-    def _get_reward(self):
+    def _get_reward(self, action):
         target_info = self._get_target_state()
 
         min_sensor = np.min(self.sensor_data[:, 1])
@@ -229,10 +229,18 @@ class UsvSimpleEnv(gym.Env):
         if target_info[1] < 0.25 and self.progress > 0.9:
             arrived_reward = 0
 
+        delta_action = np.abs(self.last_action - action)
+
         reward = -target_info[1] / 5 + colision_reward - np.abs(self.last_action[1]) + arrived_reward
         reward = arrived_reward + colision_reward - target_info[1] / 5
-        reward = arrived_reward + colision_reward + np.exp(-np.abs(self._get_ye())) + np.exp(-np.abs(target_info[0]))
-        #print(reward)
+        reward = arrived_reward + \
+                 colision_reward + \
+                 np.exp(-np.abs(self._get_ye())) + \
+                 np.exp(-np.abs(target_info[0])) * 0.75 + \
+                 np.exp(-np.abs(self.last_action[1])) * 0.4 + \
+                 np.exp(-np.sum(delta_action)) * 0.15
+
+        #print(np.exp(-np.sum(delta_action)))
         # print(f'{np.abs(self._get_ye())} {np.abs(target_info[0])}')
         # reward = arrived_reward + colision_reward - 5
         #print(reward)
@@ -280,13 +288,13 @@ class UsvSimpleEnv(gym.Env):
         self.velocity = self.np_random.uniform(0.0, 0.15, size=3)
         self.progress = 0
 
-        self.max_action = self.np_random.uniform(2.0, 3, size=3)
+        self.max_action = self.np_random.uniform(1.0, 2, size=3)
         # self.max_acceleration = self.np_random.uniform(0.5, 0.75, size=3)
         self.max_acceleration[1] = 0
         self.max_action[1] = 0
 
         # Generate obstacle positions
-        self.obstacle_n = self.np_random.integers(20, 45)
+        self.obstacle_n = self.np_random.integers(10, 25)
         self.obstacle_positions = self.np_random.uniform(*self.env_bounds, size=(self.obstacle_n, 2))
 
         # Remove obstacles next to usv position or target position
@@ -318,7 +326,6 @@ class UsvSimpleEnv(gym.Env):
     def step(self, action):
         action = np.insert(arr=action, obj=[1], values=0)  # Insert v 0
         action = self.max_action * action
-        self.last_action = action
         # print(action)
 
         # Update velocity based off current velocity and velocity action
@@ -340,14 +347,15 @@ class UsvSimpleEnv(gym.Env):
             self._render_frame()
 
         dist_to_target = np.hypot(*(self.position[:2] - self.target_position))
-        terminated = (self.progress > 0.9 and dist_to_target < 0.2) or np.min(obstacle_distance) < 0.1
+        terminated = (self.progress > 0.95) or np.min(obstacle_distance) < 0.1
         #print(f"Progress: {self.progress} Dist: {dist_to_target}")
         truncated = False
 
         obs = self._get_obs()
-        reward = self._get_reward()
+        reward = self._get_reward(action)
         # print(reward)
         info = self._get_info(reward, action)
+        self.last_action = action
         # print(reward)
 
         return obs, reward, terminated, truncated, info
