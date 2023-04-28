@@ -69,7 +69,7 @@ class UsvSimpleEnv(gym.Env):
         delta_pos = (self.target_position - self.position[:2])
         angle = self._wrap_angle(np.arctan2(delta_pos[1], delta_pos[0]) - self.position[2])
         #print(angle)
-        ye = np.abs(self._get_ye())
+        ye = self._get_ye()
         return np.array([angle, distance, ye]) / [np.pi, np.hypot(self.env_bounds[1], self.env_bounds[1]), 10]
 
     def _get_sensor_state(self):
@@ -227,7 +227,7 @@ class UsvSimpleEnv(gym.Env):
 
         arrived_reward = 0
         if target_info[1] < 0.25 and self.progress > 0.9:
-            arrived_reward = 0
+            arrived_reward = -15
 
         delta_action = np.abs(self.last_action - action)
 
@@ -235,15 +235,15 @@ class UsvSimpleEnv(gym.Env):
         reward = arrived_reward + colision_reward - target_info[1] / 5
         reward = arrived_reward + \
                  colision_reward + \
-                 np.exp(-np.abs(self._get_ye())) + \
-                 np.exp(-np.abs(target_info[0])) * 0.75 + \
-                 np.exp(-np.abs(self.last_action[1])) * 0.4 + \
+                 np.exp(-np.abs(self._get_ye()) / 0.5) + \
+                 np.exp(-np.abs(target_info[0])) * 0.80 + \
+                 np.exp(-np.abs(self.last_action[1])) * 0.35 + \
                  np.exp(-np.sum(delta_action)) * 0.15
 
         #print(np.exp(-np.sum(delta_action)))
         # print(f'{np.abs(self._get_ye())} {np.abs(target_info[0])}')
         # reward = arrived_reward + colision_reward - 5
-        #print(reward)
+        # print(np.exp(-np.abs(target_info[0])))
 
         return reward
         return -np.abs(target_info[0]) - target_info[1]  # Use distance to target
@@ -281,20 +281,20 @@ class UsvSimpleEnv(gym.Env):
 
         # Chose random angle and distance for path
         angle = self.np_random.uniform(-np.pi, np.pi)
-        dist = self.np_random.uniform(6, 8)
+        dist = self.np_random.uniform(8, 10)
         self.path_end = self.path_start + np.array([np.cos(angle), np.sin(angle)]) * dist
 
         self.target_position = self.np_random.uniform(*self.env_bounds, size=2)
         self.velocity = self.np_random.uniform(0.0, 0.15, size=3)
         self.progress = 0
 
-        self.max_action = self.np_random.uniform(1.0, 2, size=3)
+        self.max_action = self.np_random.uniform(2.0, 3, size=3)
         # self.max_acceleration = self.np_random.uniform(0.5, 0.75, size=3)
         self.max_acceleration[1] = 0
         self.max_action[1] = 0
 
         # Generate obstacle positions
-        self.obstacle_n = self.np_random.integers(10, 25)
+        self.obstacle_n = self.np_random.integers(5, 15)
         self.obstacle_positions = self.np_random.uniform(*self.env_bounds, size=(self.obstacle_n, 2))
 
         # Remove obstacles next to usv position or target position

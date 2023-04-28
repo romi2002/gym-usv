@@ -26,7 +26,7 @@ config_ppo = {
 
 config_sac = {
     "use_sde": True,
-    "sde_sample_freq": 32,
+    "sde_sample_freq": 64,
     #"learning_rate": 0.001,
     "buffer_size": 100000,
     "batch_size": 512,

@@ -18,10 +18,10 @@ class UsvSimpleAITSMCEnv(UsvSimpleEnv):
         # self.window_size = 10
         # self.window = np.zeros((2, self.window_size))
         # self.window_pos = 0
-        r_b, r_a = signal.iirfilter(4, Wn=0.25, fs=100, btype="low", ftype="butter")
+        r_b, r_a = signal.iirfilter(4, Wn=1.25, fs=100, btype="low", ftype="butter")
         self.filter_r = LiveLFilter(r_b, r_a)
 
-        u_b, u_a = signal.iirfilter(4, Wn=0.25, fs=100, btype="low", ftype="butter")
+        u_b, u_a = signal.iirfilter(4, Wn=1.25, fs=100, btype="low", ftype="butter")
         self.filter_u = LiveLFilter(u_b, u_a)
 
     def reset(self, seed=None, options=None):
