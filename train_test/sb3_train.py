@@ -25,22 +25,25 @@ config_ppo = {
 }
 
 config_sac = {
-    "use_sde": True,
-    "sde_sample_freq": 64,
+    "use_sde": False,
+    "sde_sample_freq": 4,
     #"learning_rate": 0.001,
-    "buffer_size": 100000,
-    "batch_size": 512,
+    "buffer_size": 1000000,
+    "batch_size": 256,
     "ent_coef": 'auto',
     "train_freq": 32,
     "gradient_steps": 32,
     "learning_starts": 10000,
-    "learning_rate": 0.0003,
-    "gamma": 0.999,
+    "learning_rate": 0.0001,
+    "gamma": 0.98,
     # "gamma": 0.999,
     "policy_kwargs": dict(
-        log_std_init=-3,
-        net_arch=[128, 128]
-    )
+        log_std_init=-2,
+        net_arch=[400, 300]
+    ),
+    "lambda_t": 1,
+    "lambda_s": 10,
+    "eps_s": 0.5
 }
 
 config = config_sac
@@ -79,6 +82,7 @@ class VideoCallback(BaseCallback):
 
 def make_env():
     env = gym.make(env_name, render_mode="rgb_array")
+    env = gym.wrappers.FrameStack(env, 5)
     env = gym.wrappers.RecordEpisodeStatistics(env)  # record stats such as returns
     env = gym.wrappers.RecordVideo(env, f"videos/{run.id}")
     return env
@@ -88,7 +92,7 @@ model = SAC("MlpPolicy", env, verbose=1, tensorboard_log=f"runs/{run.id}", **con
 model.learn(
     total_timesteps=total_timesteps,
     callback=[WandbCallback(
-        gradient_save_freq=1000,
+        gradient_save_freq=5000,
         model_save_freq=100000,
         model_save_path=f"models/{run.id}",
         verbose=1,

@@ -52,8 +52,8 @@ if __name__ == '__main__':
     parser.add_argument('--steps', type=int, nargs='?', default=5000)
     args = parser.parse_args()
 
-    env = gymnasium.make('usv-simple', render_mode='human', max_episode_steps=5000)
-    env.reset(options=experiment_1_options())
+    env = gymnasium.make('usv-aitsmc-simple', render_mode='human', max_episode_steps=5000)
+    env.reset()
     start = time.perf_counter()
     action = np.array([0, -1.0])
     r = 0

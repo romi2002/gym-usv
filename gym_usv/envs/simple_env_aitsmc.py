@@ -18,16 +18,22 @@ class UsvSimpleAITSMCEnv(UsvSimpleEnv):
         # self.window_size = 10
         # self.window = np.zeros((2, self.window_size))
         # self.window_pos = 0
-        r_b, r_a = signal.iirfilter(4, Wn=1.25, fs=100, btype="low", ftype="butter")
+        r_b, r_a = signal.iirfilter(4, Wn=5, fs=100, btype="low", ftype="butter")
         self.filter_r = LiveLFilter(r_b, r_a)
 
-        u_b, u_a = signal.iirfilter(4, Wn=1.25, fs=100, btype="low", ftype="butter")
+        u_b, u_a = signal.iirfilter(4, Wn=5, fs=100, btype="low", ftype="butter")
         self.filter_u = LiveLFilter(u_b, u_a)
 
     def reset(self, seed=None, options=None):
         obs, info = super().reset(seed=seed)
+        self.reference_velocity = 0.2
         self.model = usv.model.DynamicModel(self.position[0], self.position[1], self.position[2])
-        self.aitsmc = usv.controller.AITSMC(usv.controller.AITSMC.defaultParams())
+        if options and 'params' in options:
+            params = options['params']
+        else:
+            params = usv.controller.AITSMC.defaultParams()
+
+        self.aitsmc = usv.controller.AITSMC(params)
         return obs, info
 
     def filter_action(self, action):
@@ -39,6 +45,11 @@ class UsvSimpleAITSMCEnv(UsvSimpleEnv):
 
         # Compute new action with filter
         setpoint = usv.controller.AITSMCSetpoint()
+        action = 0.8 * np.array([self.last_action[0], self.last_action[2]]) + 0.2 * action
+        setpoint.r = action[1]
+        setpoint.u = action[0]
+        return setpoint
+
         setpoint.r = self.filter_r(action[1])
         setpoint.u = self.filter_u(action[0])
         return setpoint
@@ -47,8 +58,9 @@ class UsvSimpleAITSMCEnv(UsvSimpleEnv):
         left_thruster = 0
         right_thruster = 0
         last_u, last_r = 0, 0
+        #setpoint = self.filter_action(action)
 
-        for _ in range(10):
+        for _ in range(5):
             state = usv.utils.from_model(self.model)
 
             # TODO
@@ -73,7 +85,8 @@ class UsvSimpleAITSMCEnv(UsvSimpleEnv):
                 model_out.r
             ))
 
-        obs, reward, terminated, truncated, info = super().step(np.zeros(2))
+        self.max_action = np.ones(3)
+        obs, reward, terminated, truncated, info = super().step(action, update_position=False)
         debug_data = self.aitsmc.getDebugData()
         info['left_thruster'] = left_thruster
         info['right_thruster'] = right_thruster
@@ -86,6 +99,7 @@ class UsvSimpleAITSMCEnv(UsvSimpleEnv):
         info['action1'] = action[1]
         info['setpoint_u'] = last_u
         info['setpoint_r'] = last_r
+        self.last_action = np.array([setpoint.u, 0, setpoint.r])
 
         return obs, reward, terminated, truncated, info
 

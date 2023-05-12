@@ -24,7 +24,7 @@ register(
 register(
     id='usv-simple',
     entry_point='gym_usv.envs:UsvSimpleEnv',
-    max_episode_steps=150,
+    max_episode_steps=500,
 )
 
 register(
