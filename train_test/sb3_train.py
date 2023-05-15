@@ -7,47 +7,12 @@ from stable_baselines3.common.callbacks import BaseCallback
 import gym_usv
 from torch import nn
 from wandb_callback import WandbCallback
+from config import config_sac
 
 env_name = "usv-simple"
 total_timesteps = 10e6
-config_ppo = {
-    "use_sde": True,
-    #"learning_rate": 0.001,
-    "sde_sample_freq": 4,
-    "n_steps": 2048,
-    "batch_size": 64,
-    # "gamma": 0.999,
-    "policy_kwargs": dict(log_std_init=-2,
-           ortho_init=True,
-           activation_fn=nn.ReLU,
-           net_arch=dict(pi=[512, 512], vf=[512, 512])
-           )
-}
-
-config_sac = {
-    "use_sde": False,
-    "sde_sample_freq": 4,
-    #"learning_rate": 0.001,
-    "buffer_size": 1000000,
-    "batch_size": 256,
-    "ent_coef": 'auto',
-    "train_freq": 32,
-    "gradient_steps": 32,
-    "learning_starts": 10000,
-    "learning_rate": 0.0001,
-    "gamma": 0.98,
-    # "gamma": 0.999,
-    "policy_kwargs": dict(
-        log_std_init=-2,
-        net_arch=[400, 300]
-    ),
-    "lambda_t": 1,
-    "lambda_s": 10,
-    "eps_s": 0.5
-}
 
 config = config_sac
-
 
 run = wandb.init(
     project="usv-asmc-simple",

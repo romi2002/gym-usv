@@ -8,7 +8,7 @@ from gym_usv.envs import UsvAsmcCaEnv
 class UsvSimpleEnv(gym.Env):
     metadata = {"render_modes": ["human", "rgb_array"], "render_fps": 30}
 
-    def __init__(self, render_mode=None):
+    def __init__(self, render_mode="rgb_array"):
         self.sensor_count = 32
         self.sensor_span = (2 / 3) * (2 * np.pi)
         self.sensor_max_range = 100
@@ -32,7 +32,7 @@ class UsvSimpleEnv(gym.Env):
         self.max_action = np.array([3, 0, 3])
         self.reference_velocity = 0
         self.max_acceleration = np.array([1.75, 0, 3])
-        self.dt = (1 / 50)
+        self.dt = (1 / 25)
 
         # Current state
         self.velocity = np.zeros(3)
@@ -231,18 +231,19 @@ class UsvSimpleEnv(gym.Env):
         min_sensor = np.min(self.sensor_data[:, 1])
         colision_reward = 0
         if min_sensor < 0.2:
-            colision_reward = -10
+            colision_reward = -20
 
         arrived_reward = 0
 
         delta_action = np.abs(self.last_action - action)
         angle = self._get_angle_to_target()
 
-        ye_reward = np.exp(-np.abs(self._get_ye()) / 0.5)
+        ye_reward = np.exp(-np.abs(self._get_ye()) / 0.5) * 1.25
         angle_to_target_reward = np.exp(-np.abs(angle))
+        #print(angle_to_target_reward)
         angle_action_reward = -np.abs(self.last_action[2] / self.max_action[2]) * 0.5
         delta_action_reward = np.exp(-np.sum(np.abs(delta_action))) * 0.15
-        delta_action_reward = -(np.sum(np.abs(delta_action)) / 2) * 0.5
+        delta_action_reward = -(np.sum(np.abs(delta_action)) / 2) * 0.15
 
         angle_action_reward = 0
 
@@ -314,8 +315,8 @@ class UsvSimpleEnv(gym.Env):
         self.progress = 0
 
         self.max_action = self.np_random.uniform(1.50, 3, size=3)
-        self.max_action[2] = self.np_random.uniform(2, 4)
-        self.reference_velocity = self.np_random.uniform(0.50, self.max_action[0])
+        self.max_action[2] = self.np_random.uniform(3, 6)
+        self.reference_velocity = self.np_random.uniform(0.75, self.max_action[0])
         # self.max_acceleration = self.np_random.uniform(0.5, 0.75, size=3)
         self.max_acceleration[1] = 0
         self.max_action[1] = 0
@@ -373,10 +374,9 @@ class UsvSimpleEnv(gym.Env):
         if self.render_mode == "human":
             self._render_frame()
 
-        dist_to_target = np.hypot(*(self.position[:2] - self.target_position))
-        terminated = (self.progress > 0.95) or np.min(obstacle_distance) < 0.05
+        terminated = np.min(obstacle_distance) < 0.05
         # print(f"Progress: {self.progress} Dist: {dist_to_target}")
-        truncated = False
+        truncated = np.any((self.position[:2] > 10) | (self.position[:2] < 0))
 
         obs = self._get_obs(self.last_action)
         reward, reward_info = self._get_reward(action)

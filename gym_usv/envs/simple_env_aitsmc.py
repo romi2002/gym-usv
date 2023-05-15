@@ -9,10 +9,15 @@ from gym_usv.utils.live_filter import LiveLFilter
 class UsvSimpleAITSMCEnv(UsvSimpleEnv):
     metadata = {"render_modes": ["human", "rgb_array"], "render_fps": 30}
 
-    def __init__(self, render_mode=None):
+    def __init__(self, render_mode=None, options=None):
         super().__init__(render_mode)
         self.model = usv.model.DynamicModel()
-        self.aitsmc = usv.controller.AITSMC(usv.controller.AITSMC.defaultParams())
+        self.params = usv.controller.AITSMC.defaultParams()
+
+        if options and 'params' in options:
+            self.params = options['params']
+
+        self.aitsmc = usv.controller.AITSMC(self.params)
 
         # Filter setup
         # self.window_size = 10
@@ -28,12 +33,8 @@ class UsvSimpleAITSMCEnv(UsvSimpleEnv):
         obs, info = super().reset(seed=seed)
         self.reference_velocity = 0.2
         self.model = usv.model.DynamicModel(self.position[0], self.position[1], self.position[2])
-        if options and 'params' in options:
-            params = options['params']
-        else:
-            params = usv.controller.AITSMC.defaultParams()
 
-        self.aitsmc = usv.controller.AITSMC(params)
+        self.aitsmc = usv.controller.AITSMC(self.params)
         return obs, info
 
     def filter_action(self, action):
