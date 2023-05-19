@@ -53,7 +53,9 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     env = gymnasium.make('usv-simple', render_mode='human', max_episode_steps=5000)
-    env.reset()
+    env.reset(options={
+        # 'place_obstacles_on_path': 5
+    })
     start = time.perf_counter()
     action = np.array([0, -1.0])
     r = 0

@@ -27,12 +27,21 @@ class UsvSimpleAITSMCEnv(UsvSimpleEnv):
         self.filter_r = LiveLFilter(r_b, r_a)
 
         u_b, u_a = signal.iirfilter(4, Wn=5, fs=100, btype="low", ftype="butter")
+
+        self.perturb_func = lambda step: np.zeros(3)
+
+        if 'perturb_func' in options:
+            self.perturb_func = options['perturb_func']
+            print("Using perturb func")
+
         self.filter_u = LiveLFilter(u_b, u_a)
 
-    def reset(self, seed=None, options=None):
+    def reset(self, seed=None):
         obs, info = super().reset(seed=seed)
         self.reference_velocity = 0.2
+        self.max_action = np.array([0.5, 3])
         self.model = usv.model.DynamicModel(self.position[0], self.position[1], self.position[2])
+        self.perturb_step = 0
 
         self.aitsmc = usv.controller.AITSMC(self.params)
         return obs, info
@@ -61,6 +70,10 @@ class UsvSimpleAITSMCEnv(UsvSimpleEnv):
         last_u, last_r = 0, 0
         #setpoint = self.filter_action(action)
 
+        # Non MDP perturb for testing
+        perturb = list(self.perturb_func(self.perturb_step))
+        self.perturb_step += 1
+
         for _ in range(5):
             state = usv.utils.from_model(self.model)
 
@@ -72,7 +85,8 @@ class UsvSimpleAITSMCEnv(UsvSimpleEnv):
             setpoint.dot_r = 0
 
             out = self.aitsmc.update(state, setpoint)
-            model_out = self.model.update(out.left_thruster, out.right_thruster)
+
+            model_out = self.model.update_with_perturb(out.left_thruster, out.right_thruster, perturb)
             left_thruster, right_thruster = out.left_thruster, out.right_thruster
             self.position = np.hstack((
                 model_out.pose_x,
@@ -100,6 +114,7 @@ class UsvSimpleAITSMCEnv(UsvSimpleEnv):
         info['action1'] = action[1]
         info['setpoint_u'] = last_u
         info['setpoint_r'] = last_r
+        info['perturb'] = perturb
         self.last_action = np.array([setpoint.u, 0, setpoint.r])
 
         return obs, reward, terminated, truncated, info

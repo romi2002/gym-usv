@@ -46,6 +46,8 @@ class UsvSimpleEnv(gym.Env):
         self.obstacle_radius = None
         self.sensor_data = np.zeros(shape=(self.sensor_count, 2))
 
+        self.ignore_obstacles = True
+
         self.path_start = np.zeros(2)
         self.path_end = np.zeros(2)
         self.progress = 0
@@ -111,7 +113,7 @@ class UsvSimpleEnv(gym.Env):
             'left_thruster': 0,
             'right_thruster': 0,
             'ye': self._get_ye(),
-            'angle_to_target': self._get_target_state()[0]
+            'angle_to_target': self._get_target_state()[0],
         }
 
     def render(self):
@@ -230,7 +232,7 @@ class UsvSimpleEnv(gym.Env):
 
         min_sensor = np.min(self.sensor_data[:, 1])
         colision_reward = 0
-        if min_sensor < 0.2:
+        if min_sensor < 0.2 and not self.ignore_obstacles:
             colision_reward = -20
 
         arrived_reward = 0
@@ -291,6 +293,10 @@ class UsvSimpleEnv(gym.Env):
             obstacle_distances
         )
 
+        if self.ignore_obstacles:
+            obstacle_distances = np.ones(1)
+            sensors[:,1] = np.full(self.sensor_count, self.sensor_max_range)
+
         return obstacle_distances, sensors
 
     def reset(self, seed=None, options=None):
@@ -341,6 +347,20 @@ class UsvSimpleEnv(gym.Env):
             self.obstacle_positions = self.np_random.uniform(*self.env_bounds, size=(1, 2))
             self.obstacle_n = 1
 
+        if options:
+            if 'place_obstacles_on_path' in options and options['place_obstacles_on_path']:
+                # Place n obstacles on path
+                n_obs = options['place_obstacles_on_path']
+
+                mag = self.np_random.uniform(0, np.hypot(*self.env_bounds), n_obs)
+
+                line_x = self.np_random.normal(np.cos(angle) * mag + self.path_start[0], 1)
+                line_y = self.np_random.normal(np.sin(angle) * mag + self.path_start[1], 1)
+
+                path_obstacles = np.hstack((line_x.reshape(-1,1), line_y.reshape(-1,1)))
+                self.obstacle_positions = np.concatenate((self.obstacle_positions, path_obstacles))
+                self.obstacle_n = self.obstacle_positions.shape[0]
+
         self.obstacle_radius = self.np_random.uniform(0.15, 0.5, size=self.obstacle_n)
 
         obs = self._get_obs(action=np.zeros(3))
@@ -355,6 +375,7 @@ class UsvSimpleEnv(gym.Env):
         action = np.insert(arr=action, obj=[1], values=0)  # Insert v 0
         action = self.max_action * action
         # print(action)
+        # print(self.position)
 
         if update_position:
             action = 0.8 * self.last_action + 0.2 * action
@@ -374,7 +395,7 @@ class UsvSimpleEnv(gym.Env):
         if self.render_mode == "human":
             self._render_frame()
 
-        terminated = np.min(obstacle_distance) < 0.05
+        terminated = np.min(obstacle_distance) < 0.05 and not self.ignore_obstacles
         # print(f"Progress: {self.progress} Dist: {dist_to_target}")
         truncated = np.any((self.position[:2] > 10) | (self.position[:2] < 0))
 
