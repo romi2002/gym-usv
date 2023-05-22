@@ -46,7 +46,7 @@ class UsvSimpleEnv(gym.Env):
         self.obstacle_radius = None
         self.sensor_data = np.zeros(shape=(self.sensor_count, 2))
 
-        self.ignore_obstacles = True
+        self.ignore_obstacles = False
 
         self.path_start = np.zeros(2)
         self.path_end = np.zeros(2)
@@ -397,7 +397,7 @@ class UsvSimpleEnv(gym.Env):
 
         terminated = np.min(obstacle_distance) < 0.05 and not self.ignore_obstacles
         # print(f"Progress: {self.progress} Dist: {dist_to_target}")
-        truncated = np.any((self.position[:2] > 10) | (self.position[:2] < 0))
+        truncated = np.any((self.position[:2] > self.env_bounds[1]) | (self.position[:2] < 0))
 
         obs = self._get_obs(self.last_action)
         reward, reward_info = self._get_reward(action)

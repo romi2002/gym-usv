@@ -58,7 +58,7 @@ if __name__ == "__main__":
     config = config_sac
 
     run = wandb.init(
-        project="usv-asmc-simple",
+        project="usv-asmc-simple-no-obstacles",
         config=config,
         sync_tensorboard=True,  # auto-upload sb3's tensorboard metrics
         save_code=True,  # optional
