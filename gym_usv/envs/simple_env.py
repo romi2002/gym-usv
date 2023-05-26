@@ -328,6 +328,4 @@ class UsvSimpleEnv(gym.Env):
         return obs, reward, terminated, truncated, info
 
     def close(self):
-        if self.window is not None:
-            pygame.display.quit()
-            pygame.quit()
+        self.renderer.close()
