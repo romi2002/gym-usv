@@ -1,9 +1,8 @@
 import gymnasium as gym
 from gymnasium import spaces
 import numpy as np
-import pygame
 from gym_usv.envs import UsvAsmcCaEnv
-
+from . import simple_env_visualizer
 
 class UsvSimpleEnv(gym.Env):
     metadata = {"render_modes": ["human", "rgb_array"], "render_fps": 30}
@@ -57,10 +56,8 @@ class UsvSimpleEnv(gym.Env):
 
         assert render_mode is None or render_mode in self.metadata["render_modes"]
         self.render_mode = render_mode
+        self.renderer = simple_env_visualizer.SimpleEnvVisualizer(self.env_bounds, render_mode)
 
-        self.window = None
-        self.clock = None
-        self.window_size = 512
 
     @staticmethod
     def _wrap_angle(angle):
@@ -121,94 +118,15 @@ class UsvSimpleEnv(gym.Env):
             return self._render_frame()
 
     def _render_frame(self):
-        if self.window is None and self.render_mode == "human":
-            pygame.init()
-            pygame.display.init()
-            self.window = pygame.display.set_mode(
-                (self.window_size, self.window_size)
-            )
-        if self.clock is None and self.render_mode == "human":
-            self.clock = pygame.time.Clock()
-
-        canvas = pygame.Surface((self.window_size, self.window_size))
-        canvas.fill((255, 255, 255))
-
-        scale = self.window_size / self.env_bounds[1]
-
-        # Draw the target
-        pygame.draw.circle(
-            canvas,
-            (0, 0, 255),
-            self.target_position * scale,
-            10
+        return self.renderer.render_frame(
+            self.position,
+            self.target_position,
+            self.sensor_data,
+            self.obstacle_positions,
+            self.obstacle_radius,
+            self.path_start,
+            self.path_end
         )
-
-        # Draw sensor lines
-        x, y, psi = self.position
-        for i, (angle, distance) in enumerate(self.sensor_data):
-            # angle = np.where(np.greater(np.abs(angle), np.pi), np.sign(angle) * (np.abs(angle) - 2 * np.pi), angle)
-            initial = np.array([x, y])
-            x_f = distance * np.math.cos(angle) + x
-            y_f = distance * np.math.sin(angle) + y
-            final = np.array([x_f, y_f])
-
-            color = (0, 255, 0)
-
-            pygame.draw.line(canvas,
-                             color,
-                             initial * scale,
-                             final * scale)
-
-        # Draw the agent
-        pygame.draw.circle(
-            canvas,
-            (255, 0, 0),
-            self.position[:2] * scale,
-            10
-        )
-
-        # Draw "front"
-        offset = 0.1
-        front_offset = np.array([np.cos(self.position[2]) * offset, np.sin(self.position[2]) * offset])
-        pygame.draw.circle(
-            canvas,
-            (100, 100, 0),
-            (front_offset + self.position[:2]) * scale,
-            8
-        )
-
-        # Draw obstacles
-        for i, pos in enumerate(self.obstacle_positions):
-            radius = self.obstacle_radius[i]
-            pygame.draw.circle(
-                canvas,
-                (0, 100, 0),
-                pos * scale,
-                radius * scale
-            )
-
-        # Draw path line
-        pygame.draw.line(
-            canvas,
-            (100, 0, 0),
-            self.path_start * scale,
-            self.path_end * scale,
-            width=5
-        )
-
-        if self.render_mode == "human":
-            # The following line copies our drawings from `canvas` to the visible window
-            self.window.blit(canvas, canvas.get_rect())
-            pygame.event.pump()
-            pygame.display.update()
-
-            # We need to ensure that human-rendering occurs at the predefined framerate.
-            # The following line will automatically add a delay to keep the framerate stable.
-            self.clock.tick(self.metadata["render_fps"])
-        else:  # rgb_array
-            return np.transpose(
-                np.array(pygame.surfarray.pixels3d(canvas)), axes=(1, 0, 2)
-            )
 
     def _get_ye(self):
         a_k = np.arctan2(self.path_end[1] - self.path_start[1], self.path_end[0] - self.path_start[0])
