@@ -17,6 +17,7 @@ class SimpleEnvVisualizer():
     def render_frame(self, position,
                      target_position,
                      sensor_data,
+                     obstacle_n,
                      obstacle_positions,
                      obstacle_radius,
                      path_start,
@@ -78,14 +79,15 @@ class SimpleEnvVisualizer():
         )
 
         # Draw obstacles
-        for i, pos in enumerate(obstacle_positions):
-            radius = obstacle_radius[i]
-            pygame.draw.circle(
-                canvas,
-                (0, 100, 0),
-                pos * scale,
-                radius * scale
-            )
+        if obstacle_n > 0:
+            for i, pos in enumerate(obstacle_positions):
+                radius = obstacle_radius[i]
+                pygame.draw.circle(
+                    canvas,
+                    (0, 100, 0),
+                    pos * scale,
+                    radius * scale
+                )
 
         # Draw path line
         pygame.draw.line(
