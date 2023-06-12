@@ -10,7 +10,7 @@ class UsvSimpleAITSMCEnv(UsvSimpleEnv):
     metadata = {"render_modes": ["human", "rgb_array"], "render_fps": 30}
 
     def __init__(self, render_mode=None, options=None):
-        super().__init__(render_mode)
+        super().__init__(render_mode, options)
         self.model = usv.model.DynamicModel()
         self.params = usv.controller.AITSMC.defaultParams()
 
@@ -38,7 +38,7 @@ class UsvSimpleAITSMCEnv(UsvSimpleEnv):
 
     def reset(self, seed=None):
         obs, info = super().reset(seed=seed)
-        self.reference_velocity = 0.2
+        self.reference_velocity = 0.5
         self.max_action = np.array([0.5, 3])
         self.model = usv.model.DynamicModel(self.position[0], self.position[1], self.position[2])
         self.perturb_step = 0

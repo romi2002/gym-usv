@@ -7,11 +7,12 @@ from . import simple_env_visualizer
 class UsvSimpleEnv(gym.Env):
     metadata = {"render_modes": ["human", "rgb_array"], "render_fps": 30}
 
-    def __init__(self, render_mode="rgb_array"):
-        self.sensor_count = 32
+    def __init__(self, render_mode="rgb_array", options={}):
+        self.sensor_count = 128
         self.sensor_span = (2 / 3) * (2 * np.pi)
         self.sensor_max_range = 100
         self.sensor_resolution = self.sensor_span / self.sensor_count
+        self.options = options
 
         # state: u, v, r
         # target: angle to target, distance to target
@@ -52,7 +53,7 @@ class UsvSimpleEnv(gym.Env):
         self.progress = 0
         self.target_position = np.zeros(2)
 
-        self.env_bounds = (0, 10)
+        self.env_bounds = (0, 20)
 
         assert render_mode is None or render_mode in self.metadata["render_modes"]
         self.render_mode = render_mode
@@ -141,7 +142,7 @@ class UsvSimpleEnv(gym.Env):
         dx, dy = x2 - x1, y2 - y1
         det = dx * dx + dy * dy
         a = (dy * (y3 - y1) + dx * (x3 - x1)) / det
-        a += 0.005
+        a += (0.005 / 10) * self.env_bounds[1]
         a = np.clip(a, self.progress, 1)
         return np.array([x1 + a * dx, y1 + a * dy]), a
 
@@ -158,7 +159,15 @@ class UsvSimpleEnv(gym.Env):
         delta_action = np.abs(self.last_action - action)
         angle = self._get_angle_to_target()
 
-        ye_reward = np.exp(-np.abs(self._get_ye()) / 0.5) * 1.25
+        ye_reward = np.exp(-np.abs(self._get_ye()) / 0.1) * 1.25
+        ye_reward = np.clip(-np.abs(self._get_ye()), -5, 0)
+        ye = self._get_ye()
+        k = 0.075
+        ye_reward = np.maximum(
+            np.exp(-np.abs(ye/k)),
+            np.exp(-np.power(ye/k, 2))
+        )
+        #ye_reward = np.exp(-np.abs(ye/k)) - np.tanh(np.abs(ye))
         angle_to_target_reward = np.exp(-np.abs(angle))
         #print(angle_to_target_reward)
         angle_action_reward = -np.abs(self.last_action[2] / self.max_action[2]) * 0.5
@@ -167,8 +176,7 @@ class UsvSimpleEnv(gym.Env):
 
         angle_action_reward = 0
 
-        velocity_towards_target = (np.cos(angle) * self.last_action[0])
-        velocity_track_reward = np.exp(-np.abs(self.last_action[0] - self.reference_velocity)) * 0.05
+        velocity_track_reward = np.exp(-np.abs(np.hypot(self.velocity[0], self.velocity[1]) - self.reference_velocity)) * 0.05
         reward = arrived_reward + \
                  colision_reward + \
                  ye_reward + \
@@ -184,7 +192,6 @@ class UsvSimpleEnv(gym.Env):
             'delta_action_reward': delta_action_reward,
             'delta_action': np.sum(np.abs(delta_action), axis=0),
             'velocity_track_reward': velocity_track_reward,
-            'velocity_towards_target': velocity_towards_target,
             'reference_velocity': self.reference_velocity,
             'reward_velocity': self.last_action[0],
             'reference_velocity_error': self.last_action[0] - self.reference_velocity
@@ -280,6 +287,16 @@ class UsvSimpleEnv(gym.Env):
                 self.obstacle_n = self.obstacle_positions.shape[0]
 
         self.obstacle_radius = self.np_random.uniform(0.15, 0.5, size=self.obstacle_n)
+
+        if 'run_custom_experiment' in self.options and self.options['run_custom_experiment']:
+            exp_data = self.options['experiment']
+            self.obstacle_positions = exp_data['obstacle_positions']
+            self.obstacle_radius = exp_data['obstacle_radius']
+            self.path_start = exp_data['path_start']
+            self.path_end = self.path_start + np.array([np.cos(exp_data['angle']), np.sin(exp_data['angle'])]) * 100
+
+            self.position = exp_data['position']
+            self.obstacle_n = self.obstacle_positions.shape[0]
 
         obs = self._get_obs(action=np.zeros(3))
         info = self._get_info(-1, np.zeros(3))
