@@ -123,6 +123,7 @@ class UsvSimpleEnv(gym.Env):
             self.position,
             self.target_position,
             self.sensor_data,
+            self.obstacle_n,
             self.obstacle_positions,
             self.obstacle_radius,
             self.path_start,
